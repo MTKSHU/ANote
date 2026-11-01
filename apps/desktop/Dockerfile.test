@@ -1,0 +1,4 @@
+FROM anote-validation-browser:local
+RUN apt-get update && apt-get install -y --no-install-recommends libgtk-3-0 libnotify4 xauth && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+CMD ["xvfb-run", "-a", "npm", "run", "test:desktop"]

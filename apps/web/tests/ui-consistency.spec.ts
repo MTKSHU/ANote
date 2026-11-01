@@ -1,0 +1,44 @@
+import {test,expect,type Page,type APIRequestContext} from "@playwright/test";
+import {randomUUID} from "node:crypto";
+import fs from "node:fs/promises";
+import {api,admin,login,chooseTheme,uiGeometry} from "./helpers";
+async function setup(request:APIRequestContext){
+  const root=await admin(request),username="ui-"+randomUUID().slice(0,8),password="Ui-consistency-test-123!";
+  await api(request,"POST","users",{username,password,name:"布局检查员",is_admin:true},root);
+  const owner={...await api(request,"POST","auth/login",{username,password}),username,password};
+  const book=await api(request,"POST","spaces",{kind:"personal",name:"研究笔记"},owner),team=await api(request,"POST","teams",{name:"影视研究组"},owner),shared=await api(request,"POST","spaces",{kind:"team",team_id:team.id,name:"团队研究资料"},owner),note=await api(request,"POST","documents",{space_id:book.id,title:"布局与交互检查"},owner);
+  return {owner,book,team,shared,note};
+}
+async function trap(page:Page,dialog:any){
+  await expect(dialog).toHaveAttribute("aria-modal","true");
+  const controls=dialog.locator('button:not(:disabled),input:not(:disabled):not([type="hidden"]),textarea:not(:disabled),select:not(:disabled),a[href]').filter({visible:true});
+  await controls.last().focus();await page.keyboard.press("Tab");await expect(controls.first()).toBeFocused();
+  await page.keyboard.press("Shift+Tab");await expect(controls.last()).toBeFocused();
+}
+test("首页、团队和设置的标题、按钮及页签使用统一尺寸，明暗主题一致",async({page,request})=>{
+  const {owner,team}=await setup(request);await login(page,owner);
+  const samples:any[]=[];
+  async function header(name:string,selector:string){const root=page.locator(selector);await expect(root.locator("h1")).toHaveCSS("font-size","28px");const button=root.locator("button.primary");if(await button.count()){await expect(button).toHaveCSS("min-height","36px");await expect(button).toHaveCSS("font-size","13px");await expect(button).toHaveCSS("border-radius","6px");}samples.push({name,heading:await root.locator("h1").evaluate(el=>getComputedStyle(el).fontSize),button:await button.count()?await button.evaluate(el=>el.getBoundingClientRect().height):null});}
+  async function tabs(selector:string){for(const button of await page.locator(selector+" button").all()){await expect(button).toHaveCSS("height","42px");await expect(button).toHaveCSS("font-size","13px");await expect(button).toHaveCSS("background-color","rgba(0, 0, 0, 0)");}}
+  for(const theme of ["light","dark"] as const){
+    await page.locator(".academic-navigation").getByRole("button",{name:"首页",exact:true}).click();await chooseTheme(page,theme);await header(theme+" home",".academic-page-header");await tabs(".home-tabs");if(theme === "light")await fs.writeFile("artifacts/web/ui-geometry-web.json",JSON.stringify(await uiGeometry(page),null,2));
+    await page.getByTestId("personal-libraries").click();await header(theme+" personal",".academic-page-header");await expect(page.locator(".library-view-toolbar button").first()).toHaveCSS("font-size","13px");await expect(page.locator(".library-view-toolbar button").first()).toHaveCSS("min-height","36px");
+    await page.goto("/?team="+team.id);await expect(page.locator(".team-heading h1")).toHaveText(team.name);await header(theme+" team",".team-heading");await tabs(".team-hub .management-tabs");await page.getByRole("button",{name:"知识库",exact:true}).click();await header(theme+" team libraries",".team-heading");
+    await page.locator(".academic-user").getByRole("button",{name:"设置",exact:true}).click();const settings=page.getByRole("dialog",{name:"设置",exact:true});await tabs(".academic-settings>nav");await expect(settings.getByRole("button",{name:"关闭",exact:true})).toHaveCSS("width","32px");await page.screenshot({path:`artifacts/web/ui-system-${theme}.png`});await page.keyboard.press("Escape");
+  }
+  await page.setViewportSize({width:1000,height:760});await page.getByTestId("personal-libraries").click();expect(await page.locator(".academic-main").evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+});
+test("弹窗统一 Esc、焦点循环与焦点返回；保存期间保持弹窗，笔记菜单支持键盘和外点关闭",async({page,request})=>{
+  const {owner,note}=await setup(request);await login(page,owner);await page.getByTestId("personal-libraries").click();const trigger=page.getByRole("button",{name:"新建知识库",exact:true});await trigger.click();const dialog=page.getByRole("dialog",{name:"新建知识库",exact:true});await trap(page,dialog);await page.keyboard.press("Escape");await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused();
+  await trigger.click();await dialog.getByLabel("名称",{exact:true}).fill("等待保存的知识库");let started=false,release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);
+  await page.route("**/api/spaces",async route=>{if(route.request().method()!=="POST")return route.continue();started=true;await gate;await route.continue();});await dialog.getByRole("button",{name:"保存",exact:true}).click();await expect.poll(()=>started).toBe(true);await page.keyboard.press("Escape");await expect(dialog).toBeVisible();await expect(dialog.getByRole("button",{name:"关闭",exact:true})).toBeDisabled();release();await expect(dialog).toHaveCount(0);await page.unroute("**/api/spaces");
+  await page.goto("/?doc="+note.id);await expect(page.getByTestId("editor")).toBeVisible();const share=page.getByRole("button",{name:"共享",exact:true});await share.click();const sharing=page.getByRole("dialog",{name:"分享笔记",exact:true});await trap(page,sharing);await page.setViewportSize({width:1000,height:600});const close=sharing.getByRole("button",{name:"关闭",exact:true}),before=(await close.boundingBox())!.y;await sharing.locator(".dialog-body").evaluate(el=>el.scrollTop=el.scrollHeight);expect((await close.boundingBox())!.y).toBeCloseTo(before,0);await expect(close).toBeInViewport();await page.keyboard.press("Escape");await expect(sharing).toHaveCount(0);await expect(share).toBeFocused();await page.setViewportSize({width:1580,height:1150});
+  const menu=page.locator(".note-more"),summary=page.getByRole("button",{name:"笔记更多操作",exact:true});await expect(menu.locator("button")).toHaveCount(2);await expect(menu.locator("button").first()).toBeEnabled();await summary.focus();await page.keyboard.press("ArrowDown");await expect(menu).toHaveAttribute("open","");await expect(menu.locator("button").first()).toBeFocused();await page.keyboard.press("End");await expect(menu.locator("button").last()).toBeFocused();await page.keyboard.press("Escape");await expect(menu).not.toHaveAttribute("open","");await expect(summary).toBeFocused();
+  await summary.click();await page.getByLabel("笔记标题",{exact:true}).click();await expect(menu).not.toHaveAttribute("open","");
+  await summary.click();await menu.getByRole("button",{name:"删除笔记",exact:true}).click();const confirm=page.getByRole("dialog",{name:"确认删除",exact:true});await trap(page,confirm);await page.keyboard.press("Escape");await expect(confirm).toHaveCount(0);expect((await api(request,"GET",`documents/${note.id}`,undefined,owner)).id).toBe(note.id);
+});
+test("历史预览内打开附件时弹层顺序与 Esc 一致，减少动画偏好覆盖全部弹层",async({page,request})=>{
+  const {owner,note}=await setup(request);await page.emulateMedia({reducedMotion:"reduce"});await login(page,owner);await page.goto("/?doc="+note.id);await expect(page.getByTestId("editor")).toBeVisible();await page.getByLabel("上传附件文件",{exact:true}).setInputFiles("artifacts/server/fixtures/sample.png");await expect(page.locator(".media-resource img")).toHaveJSProperty("naturalWidth",64);
+  await page.locator(".document-actions").getByRole("button",{name:"历史版本",exact:true}).click();await page.getByRole("tab",{name:"命名版本",exact:true}).click();await page.getByLabel("版本号",{exact:true}).fill("v1.0");await page.getByLabel("版本说明",{exact:true}).fill("包含附件的版本");await page.getByRole("button",{name:"保存当前版本",exact:true}).click();const entry=page.locator(".history-entry").filter({hasText:"包含附件的版本"}),view=entry.getByRole("button",{name:"查看版本",exact:true});await view.click();const preview=page.getByRole("dialog",{name:"历史版本预览",exact:true});await expect(preview).toHaveCSS("animation-name","none");await expect(preview.locator(".snapshot-modal")).toHaveCSS("animation-name","none");
+  await preview.getByRole("button",{name:"查看图片 sample.png",exact:true}).click();const attachment=page.getByRole("dialog",{name:"媒体预览",exact:true});await expect(attachment).toBeVisible();expect(await attachment.evaluate(el=>Number(getComputedStyle(el.closest(".modal")!).zIndex))).toBeGreaterThan(await preview.evaluate(el=>Number(getComputedStyle(el).zIndex)));await trap(page,attachment);await page.screenshot({path:"artifacts/web/ui-nested-preview.png"});await page.keyboard.press("Escape");await expect(attachment).toHaveCount(0);await expect(preview).toBeVisible();await page.keyboard.press("Escape");await expect(preview).toHaveCount(0);await expect(view).toBeFocused();
+});

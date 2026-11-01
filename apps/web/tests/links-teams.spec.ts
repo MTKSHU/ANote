@@ -1,0 +1,73 @@
+import { test, expect, type APIRequestContext } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { api, admin, login, chooseTheme } from "./helpers";
+async function person(request: APIRequestContext, root: any) {
+  const username = "view-" + randomUUID().slice(0,8), password = "Links-team-view-test-123!";
+  await api(request,"POST","users",{username,password,name:username},root);
+  return {...await api(request,"POST","auth/login",{username,password}),username,password};
+}
+
+test("Markdown 链接输入、粘贴与中文网址可打开，编辑弹层和阅读单击均保留正文", async ({page,request}) => {
+  const root=await admin(request),owner=await person(request,root);
+  const book=await api(request,"POST","spaces",{kind:"personal",name:"链接验证"},owner);
+  const note=await api(request,"POST","documents",{space_id:book.id,title:"链接输入"},owner);
+  await page.context().route("https://research.example.org/**",route=>route.fulfill({contentType:"text/html",body:"<h1>链接目标验证</h1>"}));
+  await login(page,owner);await page.goto("/?doc="+note.id);
+  const editor=page.getByTestId("editor");
+  await editor.locator("p").first().click();
+  await page.keyboard.insertText("平台访问地址：[https://research.example.org](https://research.example.org)");
+  const address=editor.locator('a[href="https://research.example.org"]');
+  await expect(address).toHaveText("https://research.example.org");
+  await expect(editor).not.toContainText("](");
+  await address.click();
+  const actions=page.getByRole("dialog",{name:"链接操作",exact:true});
+  await expect(actions).toBeVisible();
+  const [opened]=await Promise.all([page.waitForEvent("popup"),actions.getByRole("link",{name:"打开链接 ↗",exact:true}).click()]);
+  await opened.waitForLoadState("domcontentloaded");
+  expect(opened.url()).toBe("https://research.example.org/");await opened.close();
+  await editor.press("ControlOrMeta+End");await page.keyboard.press("Enter");
+  await page.keyboard.insertText("网页地址：https://research.example.org ");
+  await expect.poll(() => editor.locator('a[href="https://research.example.org"]').count()).toBeGreaterThanOrEqual(2);
+  await page.keyboard.press("Enter");
+  const paste=async(text:string)=>editor.evaluate((el,text)=>{const data=new DataTransfer();data.setData("text/plain",text);el.dispatchEvent(new ClipboardEvent("paste",{clipboardData:data,bubbles:true,cancelable:true}));},text);
+  await paste("文档：[使用说明](https://research.example.org/guide)");
+  await expect(editor.locator('a[href="https://research.example.org/guide"]')).toHaveText("使用说明");
+  await editor.press("ControlOrMeta+End");await page.keyboard.press("Enter");
+  await paste("[危险](javascript:alert(1))");
+  await expect(editor.locator('a[href^="javascript:"]')).toHaveCount(0);
+  await page.getByRole("button",{name:"阅读",exact:true}).click();
+  await expect(editor).toHaveAttribute("contenteditable","false");
+  const [read]=await Promise.all([page.waitForEvent("popup"),editor.getByRole("link",{name:"使用说明",exact:true}).click()]);
+  await read.waitForLoadState("domcontentloaded");expect(read.url()).toBe("https://research.example.org/guide");await read.close();
+  await expect.poll(async()=>(await api(request,"GET",`documents/${note.id}/export`,undefined,owner)).markdown).toContain("[使用说明](https://research.example.org/guide)");
+  await page.reload();
+  await expect(editor.locator('a[href="https://research.example.org/guide"]')).toHaveText("使用说明");
+});
+
+test("我的团队默认卡片、可切换列表并按账号保留选择，团队首页使用侧栏返回", async ({page,request})=>{
+  const root=await admin(request),owner=await person(request,root),other=await person(request,root);
+  const first=await api(request,"POST","teams",{name:"视觉研究团队",description:"研究影像与协作笔记"},owner);
+  await api(request,"POST","teams",{name:"三维研究团队"},owner);
+  await api(request,"POST","teams",{name:"另一个账号的团队"},other);
+  const directory=page.locator(".team-directory"),sidebar=page.getByRole("complementary",{name:"知识库侧边栏",exact:true});
+  const open=async()=>sidebar.getByRole("button",{name:/^我的团队/}).click();
+  await login(page,owner);await open();
+  await expect(page.getByRole("button",{name:"卡片视图",exact:true})).toHaveAttribute("aria-pressed","true");
+  await expect(directory.locator(".team-card")).toHaveCount(2);
+  await expect(directory.locator(".team-card").first()).toHaveCSS("flex-direction","column");
+  await chooseTheme(page,"dark");
+  await page.screenshot({path:"artifacts/web/team-cards-dark.png"});
+  await page.getByRole("button",{name:"列表视图",exact:true}).click();
+  await expect(directory.locator(".team-card").first()).toHaveCSS("flex-direction","row");
+  await page.reload();await open();
+  await expect(page.getByRole("button",{name:"列表视图",exact:true})).toHaveAttribute("aria-pressed","true");
+  await page.screenshot({path:"artifacts/web/team-list-dark.png"});
+  await directory.locator(".team-card").filter({hasText:first.name}).click();
+  await expect(page.locator(".team-heading h1")).toHaveText(first.name);
+  await expect(page.locator(".team-hub .back-link")).toHaveCount(0);
+  await open();await expect(directory.locator(".team-card")).toHaveCount(2);
+  await page.request.post("/api/auth/logout");await login(page,other);await open();
+  await expect(page.getByRole("button",{name:"卡片视图",exact:true})).toHaveAttribute("aria-pressed","true");
+  await page.request.post("/api/auth/logout");await login(page,owner);await open();
+  await expect(page.getByRole("button",{name:"列表视图",exact:true})).toHaveAttribute("aria-pressed","true");
+});

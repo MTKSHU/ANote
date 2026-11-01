@@ -1,0 +1,47 @@
+services:
+  db:
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ${ANOTE_DATA_ROOT:?Set in deploy/.env.nas}/database
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+  api:
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ${ANOTE_DATA_ROOT}/clients
+        target: /data/clients
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ANOTE_DATA_ROOT}/originals
+        target: /data/resources/originals
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ANOTE_DATA_ROOT}/uploads
+        target: /data/resources/uploads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ANOTE_DATA_ROOT}/previews
+        target: /data/resources/derived
+        bind:
+          create_host_path: false
+  worker:
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ${ANOTE_DATA_ROOT}/originals
+        target: /data/resources/originals
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ANOTE_DATA_ROOT}/previews
+        target: /data/resources/derived
+        bind:
+          create_host_path: false

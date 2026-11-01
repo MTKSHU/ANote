@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: anote_validation
+      POSTGRES_USER: anote
+      POSTGRES_PASSWORD: "${VALIDATION_DB_PASSWORD:?Create validation/.env first}"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anote -d anote_validation"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  app:
+    build:
+      context: ..
+      dockerfile: validation/Dockerfile
+    environment:
+      DATABASE_URL: "postgres://anote:${VALIDATION_DB_PASSWORD}@db:5432/anote_validation"
+      VALIDATION_SECRET: "${VALIDATION_SECRET:?Create validation/.env first}"
+      PORT: "3000"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${VALIDATION_PORT:-3099}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      default:
+        aliases: [anote-validation.internal]
+    init: true
+  e2e:
+    build:
+      context: ..
+      dockerfile: validation/Dockerfile.browser
+    image: anote-validation-browser:local
+    profiles: [test]
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    environment:
+      BASE_URL: http://anote-validation.internal:3000
+      VALIDATION_SECRET: "${VALIDATION_SECRET}"
+    depends_on: [app]
+    ipc: host
+    command: ["npm", "run", "test:e2e"]
+volumes:
+  db-data:

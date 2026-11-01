@@ -1,0 +1,20 @@
+# Only for the isolated anote-test project. Uses a local fake identity provider.
+services:
+  api:
+    environment:
+      NODE_ENV: test
+      PUBLIC_ORIGIN: http://anote.internal:3000
+      CASDOOR_SERVER_URL: http://casdoor-mock:4400
+      CASDOOR_CLIENT_ID: test-client
+      CASDOOR_CLIENT_SECRET: test-secret
+      CASDOOR_APPLICATION: ""
+      CASDOOR_ALLOW_INSECURE_HTTP: "true"
+    volumes:
+      - ..:/workspace:ro
+    command: [node, apps/api/dist/main.js]
+  casdoor-mock:
+    image: node:22-bookworm
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace:ro
+    command: [node, validation/casdoor-mock.mjs]

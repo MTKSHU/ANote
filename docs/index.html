@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ANote：面向个人和团队的开源笔记与知识管理应用。富文本、实时协作、离线使用、Markdown 同步与 MCP。">
+  <meta name="theme-color" content="#f7f7f3">
+  <meta property="og:title" content="ANote · 把知识连起来">
+  <meta property="og:description" content="开源、自托管，连接你的笔记、资料与团队知识。">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://mtkshu.github.io/ANote/assets/anote-cover.png">
+  <link rel="canonical" href="https://mtkshu.github.io/ANote/">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="site.css">
+  <script src="site.js" defer></script>
+  <title>ANote · 把知识连起来</title>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-en="Skip to content">跳到正文</a>
+  <header class="site-header">
+    <a class="brand" href="#" aria-label="ANote home"><img src="assets/favicon.svg" width="30" height="30" alt=""><span>ANote</span></a>
+    <nav class="top-nav" aria-label="Main navigation">
+      <a href="#writing" data-en="Explore">功能</a>
+      <a href="#offline" data-en="Your workspace">使用方式</a>
+      <a href="#download" data-en="Download">下载</a>
+    </nav>
+    <div class="header-actions">
+      <button class="language-toggle" id="language-toggle" type="button" aria-label="Switch to English">EN</button>
+      <a class="github-link" href="https://github.com/MTKSHU/ANote" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-intro">
+        <p class="eyebrow"><span class="status-dot"></span><span data-en="OPEN SOURCE · SELF-HOSTED">开源 · 自托管</span><span class="version">v0.5.0</span></p>
+        <h1 id="hero-title"><span data-en="Write it down.">把笔记写好，</span><br><span class="ink-blue" data-en="Connect the knowledge.">把知识连起来。</span></h1>
+        <p class="hero-description" data-en="A place for your ideas, research and team knowledge. Write rich notes, work together, and keep your personal notes close—even offline.">一个容纳想法、研究记录和团队知识的地方。写下内容，一起完善，也把自己的笔记留在手边。</p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer"><span data-en="Download ANote">下载 ANote</span><span aria-hidden="true">↓</span></a>
+          <a class="button plain" href="https://github.com/MTKSHU/ANote" target="_blank" rel="noopener noreferrer"><span data-en="Explore the source">查看源码</span><span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="hero-note" data-en="Web & desktop · English / 简体中文 · Apache-2.0">网页与桌面 · 简体中文 / English · Apache-2.0</p>
+      </div>
+      <figure class="cover">
+        <img src="assets/anote-cover.png" width="1942" height="809" alt="笔记本连接资料、想法和协作成员的手绘插画" data-en-alt="A hand-drawn notebook connecting documents, ideas and collaborators" fetchpriority="high">
+        <figcaption><span data-en="From a passing thought to knowledge you can build on.">从随手一记，到可以继续积累的知识。</span><span class="caption-line"></span></figcaption>
+      </figure>
+    </section>
+
+    <div class="content-layout wrap">
+      <aside class="contents" aria-label="On this page">
+        <p data-en="IN THIS NOTE">这一页</p>
+        <a href="#writing"><span>01</span><span data-en="Writing">清晰表达</span></a>
+        <a href="#team"><span>02</span><span data-en="Collaboration">一起协作</span></a>
+        <a href="#mcp"><span>03</span><span data-en="AI connections">连接 AI</span></a>
+        <a href="#visual"><span>04</span><span data-en="Visual thinking">看见与整理</span></a>
+        <a href="#offline"><span>05</span><span data-en="Local or shared">本地与团队</span></a>
+        <a href="#download"><span>06</span><span data-en="Get ANote">开始使用</span></a>
+        <div class="contents-bottom"><span class="mini-book" aria-hidden="true">▤</span><span data-en="Your notes, connected.">让记录彼此连接。</span></div>
+      </aside>
+
+      <div class="article-body">
+        <section class="chapter" id="writing">
+          <p class="section-number">01 / <span data-en="WRITE & ORGANIZE">写作与整理</span></p>
+          <h2 data-en="A note can hold more than words.">一篇笔记，可以不止是文字。</h2>
+          <p class="section-intro" data-en="Use headings, tables, to-dos, code and equations to give ideas the right shape. Add images, audio, video or files directly where they belong.">用标题梳理结构，用表格整理信息，让待办、代码和公式各就其位。图片、音视频和附件也可以直接放进正文。</p>
+          <article class="note-example" aria-label="Illustrative note">
+            <div class="example-topline"><span><span class="small-square"></span> <span data-en="A LITTLE NOTEBOOK">一本小小的研究手记</span></span><span class="example-tag" data-en="Example">内容示例</span></div>
+            <h3 data-en="Make room for the next idea">为下一个想法，留一点空间</h3>
+            <p><span data-en="Write the context, highlight ">写下事情的来龙去脉，标记</span><mark data-en="what matters">真正重要的部分</mark><span data-en=", and come back with a new perspective.">，也给后来的自己留一个入口。</span></p>
+            <blockquote data-en="Good records make the next conversation easier.">记录下来，下一次讨论就有了起点。</blockquote>
+            <div class="note-details">
+              <div class="checklist">
+                <p class="small-label" data-en="A SMALL PLAN">一份小计划</p>
+                <label><input type="checkbox" checked><span data-en="Capture the idea">记下这个想法</span></label>
+                <label><input type="checkbox"><span data-en="Add a reference">补上一份参考资料</span></label>
+                <label><input type="checkbox"><span data-en="Share it with the team">和团队一起完善</span></label>
+              </div>
+              <div class="note-table-wrap"><table class="note-table"><caption class="sr-only" data-en="Ways to express an idea">内容表达方式</caption><thead><tr><th data-en="Content">内容</th><th data-en="A useful form">合适的表达</th></tr></thead><tbody><tr><td data-en="Structure">梳理结构</td><td data-en="Headings & mind maps">标题与思维导图</td></tr><tr><td data-en="Explain">说明过程</td><td data-en="Code & diagrams">代码与流程图</td></tr><tr><td data-en="Compare">记录差异</td><td data-en="Tables & images">表格与图片对比</td></tr></tbody></table></div>
+            </div>
+            <div class="technical-line"><span><code>const idea = await write();</code></span><span class="formula">E = mc<sup>2</sup></span><span data-en="Code · LaTeX · Mermaid">代码 · LaTeX · Mermaid</span></div>
+          </article>
+          <p class="detail-note" data-en="Libraries, nested folders, tags and search keep a growing collection easy to navigate.">知识库、多级目录、标签和搜索，让不断增长的内容依然好找。</p>
+        </section>
+
+        <section class="chapter" id="team">
+          <p class="section-number">02 / <span data-en="WORK TOGETHER">一起沉淀知识</span></p>
+          <h2 data-en="Keep the discussion next to the work.">让讨论，留在内容旁边。</h2>
+          <p class="section-intro" data-en="Build a shared home for project notes, meeting records and guides. Collaborate in real time, discuss a passage, and return to an earlier version when you need it.">把项目资料、会议纪要和操作指南放在同一个地方。多人实时编辑，围绕段落讨论，也能通过历史版本回看内容如何变化。</p>
+          <div class="collaboration-layout">
+            <div class="access-list">
+              <div><span class="access-symbol" aria-hidden="true">◇</span><div><h3 data-en="Personal, by default">个人内容，默认私有</h3><p data-en="Your own notes stay private unless you choose to share them.">自己的记录，按需要分享给指定的人。</p></div></div>
+              <div><span class="access-symbol" aria-hidden="true">▥</span><div><h3 data-en="A shared team library">团队资料，集中整理</h3><p data-en="Give members access to libraries and grant editing when it is needed.">成员按权限查阅，编辑他人的内容需要授权。</p></div></div>
+              <div><span class="access-symbol" aria-hidden="true">↗</span><div><h3 data-en="Share a read-only link">对外展示，控制范围</h3><p data-en="Public links are read only and revocable. Comments and history stay private.">外部链接只读且可撤销，评论和历史不对外公开。</p></div></div>
+            </div>
+            <figure class="comment-example">
+              <div class="comment-note"><span class="small-label" data-en="IN THE NOTE">正文中的一句话</span><p data-en="Keep the dataset version with the experiment record.">把数据集版本和实验记录放在一起。</p><span class="annotation-marker" aria-hidden="true">1</span></div>
+              <div class="comment-card"><div class="comment-author"><span class="avatar">A</span><strong data-en="A teammate">一位协作者</strong><span data-en="Comment">段落评论</span></div><p data-en="Then the next person can reproduce the same result.">这样，后来的人也能复现这次结果。</p><div class="comment-footer"><span class="resolved-dot"></span><span data-en="Context stays with the conversation">讨论与原文保持关联</span></div></div>
+              <figcaption data-en="Illustrative content · Comments link back to a passage or selection.">内容示意 · 评论可以定位到段落或选区。</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="chapter" id="mcp">
+          <p class="section-number">03 / <span data-en="CONNECT WITH MCP">连接 AI 工具</span></p>
+          <div class="mcp-panel">
+            <span class="mcp-label">MCP / OAuth</span>
+            <h2 data-en="Bring your notes into the conversation.">让 AI 从已有的知识出发。</h2>
+            <p data-en="Connect a compatible AI client to search and read notes you can access, work with attachments, or prepare changes to a note. Your existing permissions still apply.">连接支持 MCP 的 AI 客户端，查找和阅读有权访问的笔记、处理附件，或准备一份笔记修改。访问范围仍由你的账号权限决定。</p>
+            <div class="prompt-example"><span class="prompt-icon" aria-hidden="true">✳</span><p data-en="“Find the project notes, summarize the decisions, and prepare a short to-do list.”">“找到这个项目的笔记，总结已经确定的事项，再准备一份待办清单。”</p></div>
+            <div class="mcp-principles"><div><span>↗</span><strong data-en="Authorized access">按权限访问</strong><p data-en="OAuth connections can be revoked.">通过 OAuth 授权，可随时撤销连接。</p></div><div><span>≋</span><strong data-en="Review the difference">先看修改差异</strong><p data-en="Prepared changes do not alter a note.">预览阶段不会修改正式笔记。</p></div><div><span>✓</span><strong data-en="Confirm before saving">确认后保存</strong><p data-en="Concurrent changes require a fresh preview.">遇到并发变化时重新生成预览。</p></div></div>
+            <a href="https://github.com/MTKSHU/ANote/blob/main/docs/mcp.md" target="_blank" rel="noopener noreferrer"><span data-en="Read the MCP reference">了解 MCP 工具与权限</span> <span aria-hidden="true">↗</span></a>
+          </div>
+        </section>
+
+        <section class="chapter" id="visual">
+          <p class="section-number">04 / <span data-en="SEE & CONNECT">看见与整理</span></p>
+          <h2 data-en="Some ideas are clearer side by side.">有些差异，放在一起就明白。</h2>
+          <p class="section-intro" data-en="Drag the divider to compare two images. Use it for edits, design iterations or research results—and keep the explanation alongside the images.">拖动分界线，对比两张图片。编辑前后、设计方案或实验结果，都能和说明一起留在笔记里。</p>
+          <figure class="comparison-example">
+            <div class="comparison" id="comparison" style="--split:50%">
+              <img src="assets/comparison-before.png" alt="咖啡馆场景中的蓝绿色杯子" data-en-alt="A teal mug in a café" width="1536" height="1024" loading="lazy">
+              <div class="comparison-after"><img src="assets/comparison-after.png" alt="移除背景后的同一只杯子" data-en-alt="The same mug with its background removed" width="1536" height="1024" loading="lazy"></div>
+              <div class="comparison-labels"><span data-en="AFTER">处理后</span><span data-en="ORIGINAL">原图</span></div>
+              <div class="comparison-divider" aria-hidden="true"><span>‹ ›</span></div>
+              <input id="comparison-range" type="range" min="0" max="100" value="50" aria-label="拖动比较两张图片" data-en-aria="Drag to compare the two images">
+            </div>
+            <figcaption><span data-en="Interactive example · Original / background removed">可以拖动的示例 · 原图 / 去除背景</span><span data-en="Images from the reference note, generated and edited with AI.">图片来自参考笔记，由 AI 生成与处理。</span></figcaption>
+          </figure>
+          <div class="mindmap-section">
+            <div><h3 data-en="Or, give the idea a few branches.">也可以，把思路展开。</h3><p data-en="Mind maps connect a main idea with its branches. ANote supports editing nodes, adding branches, moving them and zooming the canvas.">用思维导图连接主题与分支。在 ANote 中可以编辑节点、增加分支、调整位置和缩放画布。</p><p class="detail-note" data-en="Select a branch in this example.">点击示意图的分支，看看它们如何联系。</p></div>
+            <div class="mindmap-demo"><div class="map-root">ANote</div><div class="map-branches" role="group" aria-label="Explore ANote capabilities"><button type="button" data-branch="write" aria-pressed="true" data-en="Write & express">记录与表达</button><button type="button" data-branch="team" aria-pressed="false" data-en="Organize & collaborate">整理与协作</button><button type="button" data-branch="ai" aria-pressed="false" data-en="AI connections">连接 AI</button><button type="button" data-branch="local" aria-pressed="false" data-en="Keep it local">留在本地</button></div><p id="map-description" aria-live="polite">文字、表格、代码和可视化，共同表达一个想法。</p></div>
+          </div>
+        </section>
+
+        <section class="chapter" id="offline">
+          <p class="section-number">05 / <span data-en="CHOOSE YOUR WORKSPACE">选择使用方式</span></p>
+          <h2 data-en="Yours when personal. Shared when it matters.">一个人记录，一群人积累。</h2>
+          <div class="modes">
+            <article><span class="mode-icon" aria-hidden="true">▤</span><p class="small-label" data-en="LOCAL PERSONAL MODE">本地个人模式</p><h3 data-en="A notebook on your own device.">保存在自己手边。</h3><p data-en="No account or server is needed. Choose a folder for your notes, attachments and history. Connecting to a team never uploads these notes automatically.">无需账号或服务器，选择一个自己的目录，保存正文、附件和历史。以后连接团队，也不会自动上传这些个人笔记。</p><span class="mode-detail" data-en="Offline · Your own folder · Personal notes">离线可用 · 自选目录 · 个人笔记</span></article>
+            <article><span class="mode-icon" aria-hidden="true">⌘</span><p class="small-label" data-en="SELF-HOSTED TEAM MODE">自托管团队模式</p><h3 data-en="A shared home for team knowledge.">放在团队自己的空间。</h3><p data-en="Run ANote on your own server. Use the browser or desktop client for collaboration, cached notes and managed Markdown sync. Caches and workspaces are separated by account and server.">将 ANote 运行在自己的服务器上，通过网页或桌面协作。桌面端提供离线缓存和受管 Markdown 同步，并按账号和服务隔离数据。</p><span class="mode-detail" data-en="Web & desktop · Collaboration · Markdown sync">网页与桌面 · 多人协作 · Markdown 同步</span></article>
+          </div>
+          <p class="detail-note" data-en="Markdown sync preserves structured content and flags conflicts. Keep independent backups of important data.">Markdown 同步保留结构化内容，无法自动合并的变化会提示冲突。重要数据仍需要独立备份。</p>
+        </section>
+
+        <section class="chapter download-section" id="download">
+          <p class="section-number">06 / <span data-en="GET STARTED">开始使用</span></p>
+          <div class="download-heading"><div><h2 data-en="Make space for your next note.">从下一篇笔记开始。</h2><p data-en="Get a desktop release, or explore the source and host a team workspace.">下载桌面客户端，或从源码搭建团队空间。</p></div><span class="release-badge">v0.5.0</span></div>
+          <a class="button primary release-button" href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer"><span data-en="Open GitHub Releases">前往 GitHub Releases</span><span aria-hidden="true">↗</span></a>
+          <div class="platform-list"><div><span class="platform-symbol">⊞</span><strong>Windows</strong><span>x64 · .zip</span></div><div><span class="platform-symbol">⌘</span><strong>macOS</strong><span>Intel · .tar.gz</span></div><div><span class="platform-symbol">⌘</span><strong>macOS</strong><span>Apple Silicon · .tar.gz</span></div><div><span class="platform-symbol">›_</span><strong>Linux</strong><span>x64 · .tar.gz</span></div></div>
+          <p class="release-note" data-en="Portable preview packages are unsigned. Download from Releases; Windows and macOS require native testing and signing by the distributor.">当前提供未签名的解压运行预览包。请从 Releases 获取；Windows 和 macOS 的原生测试与签名由分发者在对应系统完成。</p>
+          <div class="source-box"><div><span class="small-label" data-en="OPEN SOURCE, YOUR SERVER">开源，也属于你的服务器</span><p data-en="Start with the source. The README covers Docker setup, configuration and everyday use.">从源码开始，README 中有 Docker 安装、配置和日常使用说明。</p></div><a href="https://github.com/MTKSHU/ANote" target="_blank" rel="noopener noreferrer">MTKSHU / ANote <span aria-hidden="true">↗</span></a></div>
+          <div class="clone-command"><code id="clone-command">git clone https://github.com/MTKSHU/ANote.git</code><button id="copy-clone" type="button" data-en="Copy">复制</button></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer wrap"><div><a class="brand" href="#"><img src="assets/favicon.svg" width="25" height="25" alt=""><span>ANote</span></a><p data-en="Notes to keep. Knowledge to build on.">值得留下的记录，继续生长的知识。</p></div><div class="footer-links"><a href="https://github.com/MTKSHU/ANote" target="_blank" rel="noopener noreferrer">GitHub ↗</a><a href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer">Releases ↗</a><a href="https://github.com/MTKSHU/ANote/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache-2.0 ↗</a></div><p class="copyright">© 2026 ANote contributors</p></footer>
+</body>
+</html>

@@ -1,0 +1,701 @@
+.theme-settings {
+  margin: 24px 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.theme-settings h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.theme-options {
+  display: flex;
+  gap: 12px;
+}
+.theme-options button {
+  min-width: 110px;
+  padding: 12px 20px;
+}
+.theme-options button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--soft);
+  color: var(--accent);
+}
+.theme-settings > small {
+  display: block;
+  margin-top: 10px;
+  color: #667085;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e5e9f0;
+  --muted: #a1adbd;
+  --line: #354052;
+  --accent: #92b7ff;
+  --soft: #263751;
+  --surface: #1b2230;
+  --raised: #222c3b;
+  --canvas: #141b25;
+  --border: var(--line);
+  color: var(--ink);
+  background: var(--canvas);
+}
+html[data-theme="dark"]
+  :is(
+    body,
+    .academic-workspace,
+    .academic-main,
+    .document-region,
+    .academic-main .paper,
+    .paper,
+    .academic-browser,
+    .read-only-note,
+    .public-note
+  ) {
+  background: var(--canvas);
+  color: var(--ink);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-sidebar,
+    .academic-sidebar-collapsed,
+    .academic-user,
+    .native-sidebar-actions,
+    .academic-document-header,
+    .connect-card,
+    .login-card,
+    .login-panel
+  ) {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+html[data-theme="dark"] :is(button, input, textarea, select, summary) {
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"] :is(input, textarea, select) {
+  background: var(--canvas);
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #94a0b3;
+}
+html[data-theme="dark"] button {
+  background: var(--surface);
+}
+html[data-theme="dark"] button:hover {
+  background: var(--raised);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-brand strong,
+    .catalog-heading strong,
+    .note-open strong,
+    .library-card h2,
+    .academic-page-header h1,
+    .team-heading h1,
+    .profile-card h3,
+    .academic-dialog h2,
+    .management-form h3,
+    .document-title-wrap input,
+    .academic-user strong
+  ) {
+  color: var(--ink);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-navigation button,
+    .academic-navigation button > svg,
+    .academic-team-libraries button,
+    .folder-open,
+    .folder-open > span,
+    .catalog-note .note-open,
+    .sidebar-library > span,
+    .catalog-controls button,
+    .note-table-row time,
+    .note-visibility,
+    .note-table-head,
+    .academic-dialog label,
+    .document-actions > button,
+    .document-actions > button svg,
+    .academic-user button,
+    .document-outline nav button,
+    .back-link
+  ) {
+  color: #bfcbdd;
+}
+html[data-theme="dark"]
+  :is(
+    .muted,
+    .academic-page-header p,
+    .team-heading p,
+    .note-open small,
+    .catalog-team-label,
+    .sidebar-section-label,
+    .page-eyebrow,
+    .library-card p,
+    .library-card footer,
+    .theme-settings > small,
+    .academic-user small,
+    .settings-body,
+    .settings-body p,
+    .trash-hint,
+    .trash-empty,
+    .trash-row small,
+    .trash-row time,
+    .delete-explanation,
+    .catalog-empty,
+    .academic-empty p,
+    .academic-empty h3
+  ) {
+  color: var(--muted);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-brand,
+    .academic-navigation button,
+    .academic-team-libraries button,
+    .catalog-heading button,
+    .catalog-controls button,
+    .folder-open,
+    .note-open,
+    .row-more,
+    .sidebar-library,
+    .academic-user button,
+    .document-back,
+    .outline-toggle,
+    .document-actions button,
+    .note-more summary,
+    .document-outline button
+  ) {
+  background: transparent;
+}
+html[data-theme="dark"]
+  :is(
+    .academic-navigation button.active,
+    .academic-team-libraries button.active,
+    .catalog-note.selected,
+    .catalog-folder.selected,
+    .document-outline button.active,
+    .document-outline button:hover,
+    .academic-navigation button:hover,
+    .academic-team-libraries button:hover,
+    .catalog-note:hover,
+    .catalog-folder:hover,
+    .sidebar-library:hover,
+    .home-tabs button.active,
+    .outline-toggle.active,
+    .outline-toggle:hover
+  ) {
+  background: var(--soft);
+  color: var(--accent);
+}
+html[data-theme="dark"]
+  :is(
+    .catalog-note.selected .note-open,
+    .catalog-folder.selected .folder-open > span,
+    .academic-navigation button.active > svg,
+    .academic-workspace .row-more,
+    .academic-workspace .library-card footer button
+  ) {
+  color: var(--accent);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-brand > span,
+    .library-glyph,
+    .user-avatar,
+    .profile-status,
+    .connect-brand
+  ) {
+  background: var(--soft);
+  color: var(--accent);
+  border-color: var(--line);
+}
+html[data-theme="dark"]
+  :is(
+    .library-card,
+    .team-card,
+    .academic-dialog,
+    .academic-settings,
+    .modal-shell,
+    .document-outline,
+    .note-more > div,
+    .inspector,
+    .version-preview,
+    .snapshot-modal,
+    .asset-picker,
+    .asset-picker-dialog,
+    .attachment-preview,
+    .management-card,
+    .team-details,
+    .review-snapshot,
+    .annotation-card,
+    .annotation-draft,
+    .annotation-reply,
+    .annotation-orphans
+  ) {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .modal {
+  background: #0009;
+}
+html[data-theme="dark"]
+  :is(
+    .academic-dialog header,
+    .academic-dialog footer,
+    .academic-settings header,
+    .academic-settings nav,
+    .catalog-heading,
+    .academic-navigation,
+    .academic-sidebar,
+    .document-header,
+    .document-outline header,
+    .note-table-head,
+    .note-table-row,
+    .library-card footer,
+    .team-member-row,
+    .team-invite-row,
+    .team-details,
+    .trash-row,
+    .annotation-card header
+  ) {
+  border-color: var(--line);
+}
+html[data-theme="dark"]
+  :is(
+    .selection-toolbar,
+    .academic-floating-tools,
+    .format-popover,
+    .academic-slash-menu,
+    .table-context-menu,
+    .academic-cell-menu,
+    .table-selection-toolbar,
+    .slash-menu,
+    .inspector-tabs,
+    .annotation-reply-form
+  ) {
+  background: var(--raised);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"]
+  :is(
+    .selection-toolbar button,
+    .academic-floating-tools button,
+    .format-popover h4,
+    .academic-slash-menu strong,
+    .academic-slash-menu button,
+    .inspector-tabs button,
+    .annotation-card strong
+  ) {
+  color: var(--ink);
+}
+html[data-theme="dark"]
+  :is(
+    .selection-toolbar button[aria-pressed="true"],
+    .academic-floating-tools button[aria-pressed="true"],
+    .format-popover button[aria-pressed="true"],
+    .academic-slash-menu [aria-selected="true"]
+  ) {
+  background: var(--soft);
+  color: var(--accent);
+}
+html[data-theme="dark"] .academic-workspace :is(button.primary, .primary),
+html[data-theme="dark"] .connect-card .primary {
+  background: #315ca6;
+  border-color: #5079c0;
+  color: #fff;
+}
+html[data-theme="dark"] .academic-workspace .danger-action {
+  color: #ffb4a9;
+}
+html[data-theme="dark"] .academic-workspace .danger-button {
+  background: #b42318;
+  border-color: #d54c3d;
+  color: #fff;
+}
+html[data-theme="dark"] .research-editor {
+  color: var(--ink);
+}
+html[data-theme="dark"] .research-editor :is(h1, h2, h3, h4, h5, h6) {
+  color: inherit;
+}
+html[data-theme="dark"] .research-editor :is(td, th) {
+  border-color: #526078;
+}
+html[data-theme="dark"] .research-editor th {
+  background: var(--raised);
+}
+html[data-theme="dark"] .research-editor blockquote {
+  background: var(--raised);
+  border-color: color-mix(in srgb, var(--muted) 60%, var(--line));
+  color: var(--ink);
+  padding: 8px 16px;
+  border-radius: 0 6px 6px 0;
+}
+html[data-theme="dark"] .research-editor blockquote > :first-child {
+  margin-top: 0;
+}
+html[data-theme="dark"] .research-editor blockquote > :last-child {
+  margin-bottom: 0;
+}
+html[data-theme="dark"] .research-editor pre {
+  background: #0c111b;
+  color: #e5e9f0;
+  border-color: var(--line);
+}
+html[data-theme="dark"] .research-editor code {
+  background: #263449;
+  color: #e9f1ff;
+}
+html[data-theme="dark"] .research-editor pre code {
+  background: transparent;
+  color: inherit;
+}
+html[data-theme="dark"] .research-editor a {
+  color: #9fc1ff;
+}
+html[data-theme="dark"] .research-editor hr {
+  border-color: var(--line);
+}
+html[data-theme="dark"] .research-editor p.is-editor-empty:first-child::before {
+  color: #8c99ad;
+}
+html[data-theme="dark"]
+  :is(
+    .comparison,
+    .comparison-title,
+    .comparison-controls,
+    .asset-picker-list label,
+    .client-preview-note,
+    .client-howto,
+    .note-feedback,
+    .upload-status,
+    .version-preview header,
+    .snapshot-header,
+    .snapshot-actions,
+    .inspector-content article,
+    .annotation-card blockquote,
+    .annotation-card footer,
+    .annotation-replies,
+    .annotation-empty,
+    .annotation-prompt
+  ) {
+  background: var(--raised);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"]
+  :is(
+    .comparison-title small,
+    .academic-slash-menu small,
+    .annotation-card small,
+    .inspector-content small,
+    .document-outline p
+  ) {
+  color: var(--muted);
+}
+html[data-theme="dark"] .annotation-source-active {
+  background: #735b1c !important;
+  color: #fff1bd;
+  border-color: #b79a46;
+}
+html[data-theme="dark"] .inspector .history-panel :is(h3, article b) {
+  color: var(--ink);
+}
+html[data-theme="dark"] .inspector .history-panel .history-explanation,
+html[data-theme="dark"] .inspector .history-panel .history-editors {
+  color: var(--muted);
+}
+html[data-theme="dark"] .snapshot-modal :is(.snapshot-header h3, .history-editors) {
+  color: var(--ink);
+}
+html[data-theme="dark"] .snapshot-modal :is(.snapshot-header small, .snapshot-actions span) {
+  color: var(--muted);
+}
+html[data-theme="dark"] .academic-main .annotation-rail.inspector,
+html[data-theme="dark"] .academic-main .annotation-rail .annotation-overview {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .academic-main .annotation-rail .annotation-card {
+  background: var(--raised);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .academic-main .annotation-rail .annotation-card.active {
+  border-color: var(--accent);
+}
+html[data-theme="dark"] .academic-main .annotation-rail :is(.annotation-header > strong, .annotation-card header b, .annotation-card p, .annotation-reply b) {
+  color: var(--ink);
+}
+html[data-theme="dark"] .academic-main .annotation-rail :is(small, time, .annotation-empty, .annotation-card blockquote) {
+  color: var(--muted);
+}
+html[data-theme="dark"] .academic-main .annotation-rail .annotation-card blockquote {
+  background: var(--soft);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .academic-main .annotation-rail :is(input, textarea, select) {
+  background: var(--canvas);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .academic-main .annotation-rail button {
+  color: var(--accent);
+  background: transparent;
+}
+html[data-theme="dark"] .academic-main .annotation-rail button:hover {
+  background: var(--soft);
+}
+html[data-theme="dark"] .academic-main .annotation-rail .annotation-avatar {
+  background: var(--soft);
+  color: var(--accent);
+}
+html[data-theme="dark"] .academic-main .margin-comment,
+html[data-theme="dark"] .academic-main .margin-comment sup,
+html[data-theme="dark"] .academic-main .margin-comment::after {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .annotation-source {
+  border-color: #a99a63;
+}
+html[data-theme="dark"] .annotation-connectors path {
+  stroke: #9baac0;
+}
+html[data-theme="dark"] :is(.table-edge-handle, .table-handle, .table-insert) {
+  background: var(--raised);
+  color: var(--accent);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .research-editor .selectedCell:after {
+  background: #6196f53d;
+}
+html[data-theme="dark"] :is(.note-error, .academic-toast, [role="alert"]) {
+  background: #492d30;
+  color: #ffccc5;
+  border-color: #9d555b;
+}
+html[data-theme="dark"] :is(.document-title-wrap input, .note-title) {
+  background: transparent;
+  color: var(--ink);
+}
+html[data-theme="dark"] .document-title-wrap input:focus {
+  background: var(--raised);
+}
+html[data-theme="dark"] .document-actions {
+  background: transparent;
+}
+html[data-theme="dark"] .academic-dialog :is(header, footer),
+html[data-theme="dark"] .academic-settings :is(header, nav, .settings-body) {
+  background: var(--surface);
+}
+html[data-theme="dark"] .delete-dialog p {
+  color: var(--ink);
+}
+html[data-theme="dark"] .delete-dialog .delete-explanation {
+  color: var(--muted);
+}
+html[data-theme="dark"] .outline-toggle {
+  color: #bfcbdd;
+}
+html[data-theme="dark"] :is(.web-login, .connect-screen) {
+  background: var(--canvas);
+  color: var(--ink);
+}
+html[data-theme="dark"] :is(.web-login-card, .login-story) {
+  background: var(--surface);
+  color: var(--ink);
+}
+html[data-theme="dark"] :is(.web-login, .connect-card) h1 {
+  color: var(--ink);
+}
+html[data-theme="dark"] :is(.web-login, .connect-card) p {
+  color: var(--muted);
+}
+html[data-theme="dark"] .sso-login {
+  background: var(--soft);
+  color: var(--accent);
+  border-color: var(--line);
+}
+
+/* Settings and management screens use the same surfaces as the editor. */
+html[data-theme="dark"]
+  :is(
+    .profile-card,
+    .member-add,
+    .member-table,
+    .workspace-modal,
+    .team-member-editor,
+    .team-announcement,
+    .academic-workspace .team-card
+  ) {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"] :is(.member-table th, .library-card footer) {
+  background: var(--raised);
+  color: var(--muted);
+  border-color: var(--line);
+}
+html[data-theme="dark"] .member-table td {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-settings h2,
+    .settings-body h3,
+    .settings-body h1,
+    .management-form label,
+    .management-form legend,
+    .team-card strong,
+    .team-card .library-title,
+    .team-member strong
+  ) {
+  color: var(--ink);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-settings > nav button,
+    .management-tabs button,
+    .sidebar-library,
+    .knowledge-section-title,
+    .academic-team-libraries button.knowledge-section-title,
+    .academic-workspace button.sidebar-pin
+  ) {
+  background: transparent;
+  color: var(--muted);
+}
+html[data-theme="dark"]
+  :is(
+    .academic-settings > nav button.active,
+    .academic-settings > nav button:hover,
+    .management-tabs button.active,
+    .management-tabs button:hover,
+    .knowledge-section-title.active,
+    .academic-team-libraries button.knowledge-section-title.active
+  ) {
+  background: var(--soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+html[data-theme="dark"] .academic-workspace .academic-settings > nav button {
+  border-bottom-color: transparent;
+}
+html[data-theme="dark"]
+  .academic-workspace
+  .academic-settings
+  > nav
+  button.active {
+  border-bottom-color: var(--accent);
+}
+html[data-theme="dark"]
+  :is(
+    .management-tabs,
+    .team-member-list,
+    .account-identity,
+    .team-member-editor fieldset,
+    .team-member,
+    .library-card footer i
+  ) {
+  border-color: var(--line);
+}
+html[data-theme="dark"] .team-member:hover {
+  background: var(--raised) !important;
+}
+html[data-theme="dark"]
+  :is(
+    .profile-card p,
+    .team-card p,
+    .team-card small,
+    .team-member small,
+    .member-status,
+    .resources-page .kicker,
+    .resources-page .home-heading p,
+    .sidebar-pin-hint,
+    .knowledge-section-title > small
+  ) {
+  color: var(--muted);
+}
+html[data-theme="dark"]
+  :is(
+    .sidebar-library-row.active .sidebar-library,
+    .academic-workspace button.sidebar-pin.pinned
+  ) {
+  color: var(--accent);
+}
+html[data-theme="dark"]
+  :is(.team-notice, .sidebar-library-row.active, .sidebar-library-row:hover) {
+  background: var(--soft);
+  color: var(--ink);
+}
+html[data-theme="dark"] .library-folder .folder-open {
+  background: transparent;
+  color: var(--ink);
+}
+html[data-theme="dark"] .academic-workspace .note-table-row .note-open strong {
+  color: var(--ink);
+}
+html[data-theme="dark"]
+  .academic-workspace
+  :is(
+    .note-table-row .note-open small,
+    .note-table-row time,
+    .note-visibility,
+    .note-table-head
+  ) {
+  color: #bfcbdd;
+}
+html[data-theme="dark"]
+  .academic-workspace
+  .note-table-row:is(:hover, :focus-within, .selected) {
+  background: var(--raised);
+}
+html[data-theme="dark"] .academic-workspace .home-tabs button,
+html[data-theme="dark"] .academic-workspace .management-tabs button,
+html[data-theme="dark"] .academic-workspace .academic-settings > nav button {
+  background: transparent;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+html[data-theme="dark"] .academic-workspace .home-tabs button.active,
+html[data-theme="dark"] .academic-workspace .management-tabs button.active,
+html[data-theme="dark"]
+  .academic-workspace
+  .academic-settings
+  > nav
+  button.active {
+  background: transparent;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+html[data-theme="dark"] .academic-workspace .home-tabs button:hover,
+html[data-theme="dark"] .academic-workspace .management-tabs button:hover,
+html[data-theme="dark"]
+  .academic-workspace
+  .academic-settings
+  > nav
+  button:hover {
+  background: transparent;
+  color: var(--ink);
+}
+html[data-theme] .academic-workspace .library-card footer button.sidebar-pin {
+  color: var(--muted);
+}
+html[data-theme]
+  .academic-workspace
+  .library-card
+  footer
+  button.sidebar-pin.pinned {
+  background: var(--soft);
+  color: var(--accent);
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@anote/document-model",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/model.d.ts",
+      "import": "./dist/model.js"
+    },
+    "./anchors": {
+      "types": "./dist/anchors.d.ts",
+      "import": "./dist/anchors.js"
+    },
+    "./id": {
+      "types": "./dist/id.d.ts",
+      "import": "./dist/id.js"
+    }
+  },
+  "dependencies": {
+    "@tiptap/core": "3.32.0",
+    "@tiptap/extension-list": "3.32.0",
+    "@tiptap/extension-table": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
+    "@tiptap/y-tiptap": "3.0.10",
+    "yjs": "^13.6.27"
+  },
+  "license": "Apache-2.0"
+}

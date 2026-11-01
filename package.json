@@ -1,0 +1,80 @@
+{
+  "name": "anote",
+  "private": true,
+  "version": "0.5.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:workspace",
+    "start": "node apps/api/dist/main.js",
+    "build:workspace": "npm run build:packages && tsc -p apps/api && tsc -p apps/web && vite build --config apps/web/vite.config.ts",
+    "test:unit": "npm run build:packages && node --import tsx --test validation/tests/merge.test.ts",
+    "test:e2e": "playwright test --config validation/playwright.config.ts",
+    "sync": "node validation/scripts/sync-folder.mjs",
+    "build:packages": "tsc -p packages/document-model && tsc -p packages/sync-core && tsc -p packages/editor",
+    "build:validation": "npm run build:packages && tsc -p validation/tsconfig.server.json && tsc -p validation/tsconfig.web.json && vite build --config validation/vite.config.ts",
+    "build:desktop": "npm run build:packages && tsc -p apps/desktop/tsconfig.json && vite build --config apps/desktop/vite.config.ts && node scripts/build-desktop.mjs",
+    "test:desktop": "playwright test --config apps/desktop/playwright.config.ts"
+  },
+  "dependencies": {
+    "@hocuspocus/provider": "4.7.1",
+    "@hocuspocus/server": "4.7.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@nestjs/common": "12.2.0",
+    "@nestjs/core": "12.2.0",
+    "@nestjs/platform-express": "12.2.0",
+    "@noble/hashes": "2.4.0",
+    "@sparkjsdev/spark": "2.4.0",
+    "@tiptap/core": "3.32.0",
+    "@tiptap/extension-collaboration": "3.32.0",
+    "@tiptap/extension-collaboration-caret": "3.32.0",
+    "@tiptap/extension-table": "3.32.0",
+    "@tiptap/pm": "3.32.0",
+    "@tiptap/react": "3.32.0",
+    "@tiptap/starter-kit": "3.32.0",
+    "@tiptap/y-tiptap": "3.0.10",
+    "diff": "^8.0.2",
+    "express": "^5.1.0",
+    "jose": "6.2.13",
+    "markdown-it": "^14.1.0",
+    "openid-client": "6.8.8",
+    "pg": "^8.16.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "three": "0.186.1",
+    "y-indexeddb": "9.0.12",
+    "yjs": "^13.6.27",
+    "@anote/i18n": "0.1.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "@playwright/test": "1.64.1",
+    "@types/diff": "^7.0.2",
+    "@types/express": "^5.0.3",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.15.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/three": "0.186.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "45.0.0",
+    "esbuild": "0.28.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^6.3.5"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MTKSHU/ANote.git"
+  },
+  "homepage": "https://mtkshu.github.io/ANote/",
+  "bugs": {
+    "url": "https://github.com/MTKSHU/ANote/issues"
+  }
+}

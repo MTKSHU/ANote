@@ -1,0 +1,30 @@
+{
+  "name": "@anote/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/research-editor.d.ts",
+      "import": "./dist/research-editor.js"
+    },
+    "./style.css": "./style.css"
+  },
+  "dependencies": {
+    "@anote/document-model": "0.1.0",
+    "@anote/sync-core": "^0.1.0",
+    "@tiptap/extension-code-block-lowlight": "3.32.0",
+    "@tiptap/extension-collaboration": "3.32.0",
+    "@tiptap/extension-collaboration-caret": "3.32.0",
+    "@tiptap/react": "3.32.0",
+    "@tiptap/y-tiptap": "3.0.10",
+    "katex": "0.19.1",
+    "lowlight": "3.3.0",
+    "markdown-it": "^14.1.0",
+    "mermaid": "12.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "@anote/i18n": "0.1.0"
+  },
+  "license": "Apache-2.0"
+}

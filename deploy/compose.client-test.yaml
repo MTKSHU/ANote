@@ -1,0 +1,5 @@
+# Isolated download verification; never changes the production authentication mode.
+services:
+  api:
+    volumes:
+      - ../artifacts/releases:/data/clients:ro

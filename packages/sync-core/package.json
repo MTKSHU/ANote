@@ -1,0 +1,31 @@
+{
+  "name": "@anote/sync-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./catalog": {
+      "types": "./dist/catalog.d.ts",
+      "import": "./dist/catalog.js"
+    },
+    "./task-markdown": {
+      "types": "./dist/task-markdown.d.ts",
+      "import": "./dist/task-markdown.js"
+    },
+    "./math-markdown": {
+      "types": "./dist/math-markdown.d.ts",
+      "import": "./dist/math-markdown.js"
+    },
+    ".": {
+      "types": "./dist/merge.d.ts",
+      "import": "./dist/merge.js"
+    },
+    "./workspace": "./node/workspace.mjs"
+  },
+  "dependencies": {
+    "@anote/document-model": "0.1.0",
+    "diff": "^8.0.2",
+    "markdown-it": "^14.1.0"
+  },
+  "license": "Apache-2.0"
+}

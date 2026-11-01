@@ -1,0 +1,15 @@
+# Isolated anote-test only; never combine with compose.nas.yaml.
+services:
+  api:
+    environment:
+      NODE_ENV: test
+      PUBLIC_ORIGIN: http://anote.internal:3000
+      COOKIE_SECURE: "false"
+      CASDOOR_ALLOW_INSECURE_HTTP: "true"
+      MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL: "true"
+  casdoor-mock:
+    image: node:22-bookworm
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace:ro
+    command: [node, validation/casdoor-mock.mjs]
