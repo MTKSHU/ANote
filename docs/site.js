@@ -7,8 +7,8 @@ const attributes = [...document.querySelectorAll("[data-en-alt],[data-en-aria]")
 const descriptions = {
   write: { zh: "文字、表格、代码和可视化，共同表达一个想法。", en: "Text, tables, code and visual content give an idea the right form." },
   team: { zh: "知识库、目录和评论，把分散的记录放在同一个语境里。", en: "Libraries, folders and comments bring scattered notes into a shared context." },
-  ai: { zh: "让兼容的 AI 工具在授权范围内检索、阅读和准备修改。", en: "Compatible AI tools can search, read and prepare edits within your permissions." },
-  local: { zh: "个人笔记保存在自己的设备上，也能在离线时继续使用。", en: "Personal notes stay on your device and remain available offline." },
+  ai: { zh: "本地 MCP 连接个人目录；远程 MCP 按服务器授权检索、阅读和准备修改。", en: "Local MCP connects to your personal folder; remote MCP searches, reads and prepares edits within server permissions." },
+  local: { zh: "个人 App 无需账号或服务器，笔记和附件保存在自选目录；也可开启本地 MCP。", en: "The personal app needs no account or server. Notes and attachments stay in your folder; local MCP is available too." },
 };
 let language = "zh";
 let branch = "write";
@@ -42,8 +42,10 @@ function setLanguage(next) {
   attributes.forEach(({ element, name, zh, en }) => { element.setAttribute(name, next === "zh" ? zh : en); });
   languageButton.textContent = next === "zh" ? "EN" : "中文";
   languageButton.setAttribute("aria-label", next === "zh" ? "Switch to English" : "切换为简体中文");
-  document.title = next === "zh" ? "ANote · 把知识连起来" : "ANote · Connected knowledge";
-  document.querySelector('meta[name="description"]').content = next === "zh" ? "ANote：面向个人和团队的开源笔记与知识管理应用。富文本、实时协作、离线使用、Markdown 同步与 MCP。" : "ANote is an open-source, self-hosted notes and knowledge workspace with rich text, collaboration, offline use, Markdown sync and MCP.";
+  document.title = next === "zh" ? "ANote · 本地个人笔记与团队协作" : "ANote · Local notes & team collaboration";
+  document.querySelector('meta[name="description"]').content = next === "zh" ? "ANote：无需账号或服务器的本地个人笔记 App，也可自托管为团队协作平台。支持富文本、笔记链接、全景媒体、Markdown/PDF 导出与本地/远程 MCP。" : "ANote is a standalone personal notes app with no account or server required, and a self-hosted team platform with collaboration, offline copies, Markdown/PDF export and local or remote MCP.";
+  document.querySelector('meta[property="og:title"]').content = document.title;
+  document.querySelector('meta[property="og:description"]').content = document.querySelector('meta[name="description"]').content;
   try { localStorage.setItem(storageKey, next); } catch {}
   clearTimeout(copyTimer);
   copyButton.textContent = next === "zh" ? "复制" : "Copy";

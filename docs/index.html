@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="ANote：面向个人和团队的开源笔记与知识管理应用。富文本、实时协作、离线使用、Markdown 同步与 MCP。">
+  <meta name="description" content="ANote：无需账号或服务器的本地个人笔记 App，也可自托管为团队协作平台。支持富文本、笔记链接、全景媒体、Markdown/PDF 导出与本地/远程 MCP。">
   <meta name="theme-color" content="#f7f7f3">
-  <meta property="og:title" content="ANote · 把知识连起来">
-  <meta property="og:description" content="开源、自托管，连接你的笔记、资料与团队知识。">
+  <meta property="og:title" content="ANote · 本地个人笔记与团队协作">
+  <meta property="og:description" content="个人使用无需部署：下载桌面 App 即可本地记录。需要团队协作时，再连接或搭建自托管服务器。">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://mtkshu.github.io/ANote/assets/anote-cover.png">
   <link rel="canonical" href="https://mtkshu.github.io/ANote/">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="site.css">
   <script src="site.js" defer></script>
-  <title>ANote · 把知识连起来</title>
+  <title>ANote · 本地个人笔记与团队协作</title>
 </head>
 <body>
   <a class="skip-link" href="#main" data-en="Skip to content">跳到正文</a>
@@ -33,14 +33,18 @@
   <main id="main">
     <section class="hero wrap" aria-labelledby="hero-title">
       <div class="hero-intro">
-        <p class="eyebrow"><span class="status-dot"></span><span data-en="OPEN SOURCE · SELF-HOSTED">开源 · 自托管</span><span class="version">v0.5.0</span></p>
-        <h1 id="hero-title"><span data-en="Write it down.">把笔记写好，</span><br><span class="ink-blue" data-en="Connect the knowledge.">把知识连起来。</span></h1>
-        <p class="hero-description" data-en="A place for your ideas, research and team knowledge. Write rich notes, work together, and keep your personal notes close—even offline.">一个容纳想法、研究记录和团队知识的地方。写下内容，一起完善，也把自己的笔记留在手边。</p>
+        <p class="eyebrow"><span class="status-dot"></span><span data-en="LOCAL APP · TEAM PLATFORM">本地 App · 团队平台</span><span class="version" data-en="Source v0.5.10">源码 v0.5.10</span></p>
+        <h1 id="hero-title"><span data-en="Personal. No server.">个人笔记，下载即用。</span><br><span class="ink-blue" data-en="Teamwork. Self-hosted.">团队知识，按需协作。</span></h1>
+        <p class="hero-description" data-en="ANote is both a standalone personal notes app and a self-hosted team platform. For personal use, download the desktop app and choose a folder—no account or server setup needed. Connect to a team server whenever you need collaboration.">ANote 既是独立的个人笔记 App，也是可自托管的团队平台。个人使用只需下载桌面客户端、选择一个目录，无需账号、无需部署服务器；需要协作时，再连接团队服务器。</p>
         <div class="hero-actions">
-          <a class="button primary" href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer"><span data-en="Download ANote">下载 ANote</span><span aria-hidden="true">↓</span></a>
-          <a class="button plain" href="https://github.com/MTKSHU/ANote" target="_blank" rel="noopener noreferrer"><span data-en="Explore the source">查看源码</span><span aria-hidden="true">↗</span></a>
+          <a class="button primary" href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer"><span data-en="Download personal app">下载个人 App</span><span aria-hidden="true">↓</span></a>
+          <a class="button plain" href="https://github.com/MTKSHU/ANote/blob/main/deploy/README.md" target="_blank" rel="noopener noreferrer"><span data-en="Set up a team space">搭建团队空间</span><span aria-hidden="true">↗</span></a>
         </div>
-        <p class="hero-note" data-en="Web & desktop · English / 简体中文 · Apache-2.0">网页与桌面 · 简体中文 / English · Apache-2.0</p>
+        <p class="hero-note" data-en="Windows / macOS / Linux · English / 简体中文 · Open source, Apache-2.0">Windows / macOS / Linux · 简体中文 / English · 开源 Apache-2.0</p>
+        <div class="usage-paths" role="group" aria-label="两种使用方式" data-en-aria="Two ways to use ANote">
+          <a class="usage-path personal-path" href="#offline-local"><span class="usage-label" data-en="FOR YOURSELF">个人使用</span><strong data-en="A complete local app">完整的本地个人 App</strong><span data-en="No sign-in. No server. Notes, attachments and history stay in your folder.">不登录、不部署。笔记、附件和历史保存在自己的目录。</span><span class="usage-more" data-en="Start locally ↓">了解本地使用 ↓</span></a>
+          <a class="usage-path" href="#offline-team"><span class="usage-label" data-en="FOR YOUR TEAM">团队使用</span><strong data-en="A self-hosted shared workspace">可自托管的团队空间</strong><span data-en="Connect through the browser or desktop app. Collaborate and share with permissions.">通过网页或桌面连接服务器，按权限协作与分享。</span><span class="usage-more" data-en="Explore teamwork ↓">了解团队协作 ↓</span></a>
+        </div>
       </div>
       <figure class="cover">
         <img src="assets/anote-cover.png" width="1942" height="809" alt="笔记本连接资料、想法和协作成员的手绘插画" data-en-alt="A hand-drawn notebook connecting documents, ideas and collaborators" fetchpriority="high">
@@ -81,18 +85,23 @@
             </div>
             <div class="technical-line"><span><code>const idea = await write();</code></span><span class="formula">E = mc<sup>2</sup></span><span data-en="Code · LaTeX · Mermaid">代码 · LaTeX · Mermaid</span></div>
           </article>
-          <p class="detail-note" data-en="Libraries, nested folders, tags and search keep a growing collection easy to navigate.">知识库、多级目录、标签和搜索，让不断增长的内容依然好找。</p>
+          <div class="feature-details">
+            <article><h3 data-en="Read long notes comfortably">长文也好读</h3><p data-en="Fold heading sections, navigate the outline, and connect notes with links and an automatic reference list.">标题内容可折叠，文内目录方便跳转；笔记链接与文末参考列表让资料彼此连接。</p></article>
+            <article><h3 data-en="Fine-tune your tables">表格与段落可细调</h3><p data-en="Drag or fit column widths, set cell backgrounds and vertical alignment, and indent the first line of a paragraph.">拖动或按内容调整列宽，设置底纹与垂直对齐；正文支持首行缩进两字符。</p></article>
+            <article><h3 data-en="Export with your attachments">导出时带上附件</h3><p data-en="Export Markdown with an assets folder, or save a PDF with table formatting and first-line indents preserved.">Markdown 与 assets 附件一并打包；导出 PDF 时保留表格排版和首行缩进。</p></article>
+          </div>
+          <p class="detail-note" data-en="Libraries, nested folders, tags and search keep growing collections organized. These editing tools also work in the standalone desktop app.">知识库、多级目录、标签和搜索，让内容依然好找。这些编辑能力在独立的本地桌面 App 中同样可用。</p>
         </section>
 
         <section class="chapter" id="team">
           <p class="section-number">02 / <span data-en="WORK TOGETHER">一起沉淀知识</span></p>
           <h2 data-en="Keep the discussion next to the work.">让讨论，留在内容旁边。</h2>
-          <p class="section-intro" data-en="Build a shared home for project notes, meeting records and guides. Collaborate in real time, discuss a passage, and return to an earlier version when you need it.">把项目资料、会议纪要和操作指南放在同一个地方。多人实时编辑，围绕段落讨论，也能通过历史版本回看内容如何变化。</p>
+          <p class="section-intro" data-en="On a team server, collaborate through the browser or desktop app, discuss passages, mention teammates and review history. Members can join an existing server without deploying one themselves.">连接团队服务器后，通过网页或桌面多人实时编辑，围绕段落评论、提及成员并接收提醒，也能回看历史版本。普通成员连接已有平台即可，无需自己部署。</p>
           <div class="collaboration-layout">
             <div class="access-list">
               <div><span class="access-symbol" aria-hidden="true">◇</span><div><h3 data-en="Personal, by default">个人内容，默认私有</h3><p data-en="Your own notes stay private unless you choose to share them.">自己的记录，按需要分享给指定的人。</p></div></div>
-              <div><span class="access-symbol" aria-hidden="true">▥</span><div><h3 data-en="A shared team library">团队资料，集中整理</h3><p data-en="Give members access to libraries and grant editing when it is needed.">成员按权限查阅，编辑他人的内容需要授权。</p></div></div>
-              <div><span class="access-symbol" aria-hidden="true">↗</span><div><h3 data-en="Share a read-only link">对外展示，控制范围</h3><p data-en="Public links are read only and revocable. Comments and history stay private.">外部链接只读且可撤销，评论和历史不对外公开。</p></div></div>
+              <div><span class="access-symbol" aria-hidden="true">▥</span><div><h3 data-en="A shared team library">团队资料，集中整理</h3><p data-en="Manage access to libraries and individual notes. Archive a completed library as read-only while retaining its content and history.">按知识库或单篇笔记授权；完成的知识库可归档为只读，内容和历史继续保留。</p></div></div>
+              <div><span class="access-symbol" aria-hidden="true">↗</span><div><h3 data-en="Share a read-only link">对外展示，控制范围</h3><p data-en="Share a note or an entire library read-only, with expiry, revocation and watermarks. Comments and history stay private.">支持单篇与整库只读分享、有效期、撤销和水印，评论与历史不对外公开。</p></div></div>
             </div>
             <figure class="comment-example">
               <div class="comment-note"><span class="small-label" data-en="IN THE NOTE">正文中的一句话</span><p data-en="Keep the dataset version with the experiment record.">把数据集版本和实验记录放在一起。</p><span class="annotation-marker" aria-hidden="true">1</span></div>
@@ -105,11 +114,11 @@
         <section class="chapter" id="mcp">
           <p class="section-number">03 / <span data-en="CONNECT WITH MCP">连接 AI 工具</span></p>
           <div class="mcp-panel">
-            <span class="mcp-label">MCP / OAuth</span>
-            <h2 data-en="Bring your notes into the conversation.">让 AI 从已有的知识出发。</h2>
-            <p data-en="Connect a compatible AI client to search and read notes you can access, work with attachments, or prepare changes to a note. Your existing permissions still apply.">连接支持 MCP 的 AI 客户端，查找和阅读有权访问的笔记、处理附件，或准备一份笔记修改。访问范围仍由你的账号权限决定。</p>
+            <span class="mcp-label" data-en="MCP · LOCAL &amp; SERVER">MCP · 本地与服务器</span>
+            <h2 data-en="AI can work with local notes, too.">本地笔记，也能连接 AI。</h2>
+            <p data-en="The personal app offers local MCP for searching, reading and editing the current notes folder, without a notes server. Team servers support remote MCP with OAuth or personal tokens, within your existing permissions.">个人 App 可开启本地 MCP，让 AI 检索、阅读和编辑当前笔记目录，无需另建笔记服务器。团队服务器支持 OAuth 或独立令牌连接远程 MCP，访问范围仍由账号已有权限决定。</p>
             <div class="prompt-example"><span class="prompt-icon" aria-hidden="true">✳</span><p data-en="“Find the project notes, summarize the decisions, and prepare a short to-do list.”">“找到这个项目的笔记，总结已经确定的事项，再准备一份待办清单。”</p></div>
-            <div class="mcp-principles"><div><span>↗</span><strong data-en="Authorized access">按权限访问</strong><p data-en="OAuth connections can be revoked.">通过 OAuth 授权，可随时撤销连接。</p></div><div><span>≋</span><strong data-en="Review the difference">先看修改差异</strong><p data-en="Prepared changes do not alter a note.">预览阶段不会修改正式笔记。</p></div><div><span>✓</span><strong data-en="Confirm before saving">确认后保存</strong><p data-en="Concurrent changes require a fresh preview.">遇到并发变化时重新生成预览。</p></div></div>
+            <div class="mcp-principles"><div><span>↗</span><strong data-en="Choose the connection">选择连接方式</strong><p data-en="Use the local app's token, or authorize access to a team server.">本地 App 使用独立令牌；团队连接按授权访问。</p></div><div><span>≋</span><strong data-en="Review the difference">先看修改差异</strong><p data-en="Prepared changes do not alter a note.">预览阶段不会修改正式笔记。</p></div><div><span>✓</span><strong data-en="Confirm before saving">确认后保存</strong><p data-en="Concurrent changes require a fresh preview.">遇到并发变化时重新生成预览。</p></div></div>
             <a href="https://github.com/MTKSHU/ANote/blob/main/docs/mcp.md" target="_blank" rel="noopener noreferrer"><span data-en="Read the MCP reference">了解 MCP 工具与权限</span> <span aria-hidden="true">↗</span></a>
           </div>
         </section>
@@ -117,7 +126,8 @@
         <section class="chapter" id="visual">
           <p class="section-number">04 / <span data-en="SEE & CONNECT">看见与整理</span></p>
           <h2 data-en="Some ideas are clearer side by side.">有些差异，放在一起就明白。</h2>
-          <p class="section-intro" data-en="Drag the divider to compare two images. Use it for edits, design iterations or research results—and keep the explanation alongside the images.">拖动分界线，对比两张图片。编辑前后、设计方案或实验结果，都能和说明一起留在笔记里。</p>
+          <p class="section-intro" data-en="Add images and SVG, play audio and video, or explore 360° panorama images and videos. Drag the divider below to compare two images while keeping their explanation in the note.">图片与 SVG 直接放进正文，音频与视频就地播放，也支持 360° 全景图片和视频。对比两张图片时，拖动分界线，就能把差异和说明一起留在笔记里。</p>
+          <div class="media-capabilities" aria-label="媒体能力" data-en-aria="Media capabilities"><span data-en="Images &amp; SVG">图片与 SVG</span><span data-en="Audio &amp; video">音频与视频</span><span data-en="360° panoramas">360° 全景</span><span data-en="Media loads on demand">媒体按需加载</span></div>
           <figure class="comparison-example">
             <div class="comparison" id="comparison" style="--split:50%">
               <img src="assets/comparison-before.png" alt="咖啡馆场景中的蓝绿色杯子" data-en-alt="A teal mug in a café" width="1536" height="1024" loading="lazy">
@@ -136,21 +146,23 @@
 
         <section class="chapter" id="offline">
           <p class="section-number">05 / <span data-en="CHOOSE YOUR WORKSPACE">选择使用方式</span></p>
-          <h2 data-en="Yours when personal. Shared when it matters.">一个人记录，一群人积累。</h2>
+          <h2 data-en="Start on your own. Connect when you choose.">先为自己记录，再按需连接团队。</h2>
+          <p class="section-intro" data-en="The desktop app works on its own. Server deployment is for shared team spaces; an individual can start without one.">桌面客户端本身就是完整的个人笔记 App。个人使用从下载开始；团队需要集中管理和多人协作时，再部署服务器。</p>
           <div class="modes">
-            <article><span class="mode-icon" aria-hidden="true">▤</span><p class="small-label" data-en="LOCAL PERSONAL MODE">本地个人模式</p><h3 data-en="A notebook on your own device.">保存在自己手边。</h3><p data-en="No account or server is needed. Choose a folder for your notes, attachments and history. Connecting to a team never uploads these notes automatically.">无需账号或服务器，选择一个自己的目录，保存正文、附件和历史。以后连接团队，也不会自动上传这些个人笔记。</p><span class="mode-detail" data-en="Offline · Your own folder · Personal notes">离线可用 · 自选目录 · 个人笔记</span></article>
-            <article><span class="mode-icon" aria-hidden="true">⌘</span><p class="small-label" data-en="SELF-HOSTED TEAM MODE">自托管团队模式</p><h3 data-en="A shared home for team knowledge.">放在团队自己的空间。</h3><p data-en="Run ANote on your own server. Use the browser or desktop client for collaboration, cached notes and managed Markdown sync. Caches and workspaces are separated by account and server.">将 ANote 运行在自己的服务器上，通过网页或桌面协作。桌面端提供离线缓存和受管 Markdown 同步，并按账号和服务隔离数据。</p><span class="mode-detail" data-en="Web & desktop · Collaboration · Markdown sync">网页与桌面 · 多人协作 · Markdown 同步</span></article>
+            <article id="offline-local"><span class="mode-icon" aria-hidden="true">▤</span><p class="small-label" data-en="PERSONAL APP · NO SERVER">个人 App · 无需服务器</p><h3 data-en="Download, choose a folder, start writing.">下载、选目录，开始记录。</h3><p data-en="Use local libraries, rich text, attachments, history and Markdown on your own computer. Local MCP connects AI tools to this folder. No account, Docker or server is required.">本地知识库、富文本、附件、历史和 Markdown 都在自己的电脑上使用；本地 MCP 还可让 AI 连接当前目录。无需账号，也无需 Docker 或服务器。</p><ol class="mode-steps"><li data-en="Download the Windows, macOS or Linux desktop app.">下载 Windows、macOS 或 Linux 桌面客户端。</li><li data-en="Open it and choose Local personal notes.">打开后选择“本地个人笔记”。</li><li data-en="Choose a storage folder and start writing.">选择存储目录，直接开始写作。</li></ol><a class="mode-link" href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer"><span data-en="Get the personal app">下载个人 App</span><span aria-hidden="true">↗</span></a></article>
+            <article id="offline-team"><span class="mode-icon" aria-hidden="true">⌘</span><p class="small-label" data-en="TEAM PLATFORM · SELF-HOSTED">团队平台 · 自托管</p><h3 data-en="A shared workspace on your server.">在团队的服务器上，一起积累。</h3><p data-en="An administrator hosts the platform; members connect in a browser or desktop app. Collaborate in real time, comment, manage access and share read-only links. Members do not each need their own deployment.">管理员部署平台，成员通过浏览器或桌面客户端连接。多人协同、评论、权限管理与只读分享集中在同一空间，普通成员无需各自部署。</p><ol class="mode-steps"><li data-en="The administrator deploys ANote with Docker.">管理员使用 Docker 部署 ANote。</li><li data-en="Members open the address or enter it in the desktop app.">成员打开平台地址，或在桌面端填写该地址。</li><li data-en="Sign in and use personal and team libraries with access controls.">登录后按权限使用个人与团队知识库。</li></ol><a class="mode-link" href="https://github.com/MTKSHU/ANote/blob/main/deploy/README.md" target="_blank" rel="noopener noreferrer"><span data-en="Read the team setup guide">查看团队部署指南</span><span aria-hidden="true">↗</span></a></article>
           </div>
-          <p class="detail-note" data-en="Markdown sync preserves structured content and flags conflicts. Keep independent backups of important data.">Markdown 同步保留结构化内容，无法自动合并的变化会提示冲突。重要数据仍需要独立备份。</p>
+          <div class="offline-details"><h3 data-en="Team notes can stay available offline, too.">服务器笔记，也可按需留一份在本机。</h3><p data-en="In server mode, optionally keep permitted notes and attachments locally, continue working offline and sync after reconnecting. Chunked incremental backups reuse unchanged content, with restore points you can browse and delete. Local personal notes stay in their own directory and are never uploaded just because you connect to a team.">服务器模式可选择保留有权读取的笔记与附件，断网后继续使用，重连后同步。独立备份采用分块增量保存，复用未变化内容，并支持查看、恢复和删除时间点。本地个人笔记始终保存在自己的目录，连接团队不会自动上传。</p><p data-en="Choose another working directory when needed; migration verifies the files and keeps the original copy for you to check.">需要更换工作目录时，可校验并迁移笔记与附件，保留原目录副本供确认。</p></div>
         </section>
 
         <section class="chapter download-section" id="download">
           <p class="section-number">06 / <span data-en="GET STARTED">开始使用</span></p>
-          <div class="download-heading"><div><h2 data-en="Make space for your next note.">从下一篇笔记开始。</h2><p data-en="Get a desktop release, or explore the source and host a team workspace.">下载桌面客户端，或从源码搭建团队空间。</p></div><span class="release-badge">v0.5.0</span></div>
-          <a class="button primary release-button" href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer"><span data-en="Open GitHub Releases">前往 GitHub Releases</span><span aria-hidden="true">↗</span></a>
+          <div class="download-heading"><div><h2 data-en="Make space for your next note.">从下一篇笔记开始。</h2><p data-en="For yourself: download the desktop app. For a team: host the platform or join an existing server.">个人：下载桌面 App 即可使用。团队：按需部署平台，或连接已有服务器。</p></div><span class="release-badge" data-en="Versions on Releases">版本以 Releases 为准</span></div>
+          <a class="button primary release-button" href="https://github.com/MTKSHU/ANote/releases" target="_blank" rel="noopener noreferrer"><span data-en="Download the personal app">下载个人 App（无需服务器）</span><span aria-hidden="true">↗</span></a>
           <div class="platform-list"><div><span class="platform-symbol">⊞</span><strong>Windows</strong><span>x64 · .zip</span></div><div><span class="platform-symbol">⌘</span><strong>macOS</strong><span>Intel · .tar.gz</span></div><div><span class="platform-symbol">⌘</span><strong>macOS</strong><span>Apple Silicon · .tar.gz</span></div><div><span class="platform-symbol">›_</span><strong>Linux</strong><span>x64 · .tar.gz</span></div></div>
-          <p class="release-note" data-en="Portable preview packages are unsigned. Download from Releases; Windows and macOS require native testing and signing by the distributor.">当前提供未签名的解压运行预览包。请从 Releases 获取；Windows 和 macOS 的原生测试与签名由分发者在对应系统完成。</p>
-          <div class="source-box"><div><span class="small-label" data-en="OPEN SOURCE, YOUR SERVER">开源，也属于你的服务器</span><p data-en="Start with the source. The README covers Docker setup, configuration and everyday use.">从源码开始，README 中有 Docker 安装、配置和日常使用说明。</p></div><a href="https://github.com/MTKSHU/ANote" target="_blank" rel="noopener noreferrer">MTKSHU / ANote <span aria-hidden="true">↗</span></a></div>
+          <p class="release-note" data-en="Download versions follow GitHub Releases; these feature descriptions reflect the v0.5.10 source. Portable preview packages are unsigned, and distributors must complete platform testing and signing.">下载版本以 GitHub Releases 为准，本页功能对应 v0.5.10 源码。解压运行预览包尚未签名，原生系统验收与签名由分发者完成。</p>
+          <p class="mobile-note" data-en="On phones, use the responsive team website. Android and HarmonyOS previews and an iOS source project connect to a server; standalone personal mode is currently offered in the desktop app.">手机可使用适配移动端的平台网页；Android、HarmonyOS 预览工程和 iOS 源工程用于连接服务器。无需服务器的独立个人模式目前提供桌面客户端。</p>
+          <div class="source-box"><div><span class="small-label" data-en="OPEN SOURCE · PERSONAL &amp; TEAM">开源，个人与团队都能用</span><p data-en="Use the personal app directly, or deploy a shared team platform. The README covers desktop builds, Docker setup and everyday use.">个人可直接使用 App，团队可部署共享平台。README 提供客户端构建、Docker 部署和日常使用说明。</p></div><a href="https://github.com/MTKSHU/ANote" target="_blank" rel="noopener noreferrer">MTKSHU / ANote <span aria-hidden="true">↗</span></a></div>
           <div class="clone-command"><code id="clone-command">git clone https://github.com/MTKSHU/ANote.git</code><button id="copy-clone" type="button" data-en="Copy">复制</button></div>
         </section>
       </div>
