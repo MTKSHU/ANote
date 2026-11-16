@@ -47,6 +47,7 @@ test("视频与图片排版实时协同、重开保留；只读和匿名分享�
     await expect(peer.locator('.media-resource[data-media-kind="image"] .media-frame')).toHaveAttribute("style", /width: 25%/);
     await expect(peer.locator('.media-resource[data-media-kind="image"] .media-layout')).toHaveAttribute("data-alignment", "left");
     await video.locator("video").click({ position: { x: 30, y: 20 } }); await page.getByLabel("媒体宽度", { exact: true }).selectOption("50"); await page.getByRole("button", { name: "媒体右对齐", exact: true }).click();
+    await expect.poll(()=>video.locator("video").evaluate(el=>el.videoWidth)).toBeGreaterThan(0);
     const ratio = await video.locator("video").evaluate(el => el.videoWidth / el.videoHeight), box = (await video.locator("video").boundingBox())!; expect(box.width / box.height).toBeCloseTo(ratio, 2);
     await expect(video.locator("video")).toHaveJSProperty("controls", true);
     await video.locator("video").dblclick({ position: { x: 30, y: 20 } }); await expect(page.getByRole("dialog", { name: "媒体预览", exact: true }).locator("video")).toHaveJSProperty("controls", true); await page.keyboard.press("Escape");

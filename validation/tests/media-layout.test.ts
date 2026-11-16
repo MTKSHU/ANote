@@ -8,7 +8,7 @@ const content = () => canonical({ type: "doc", content: [
   { type: "paragraph", attrs: { blockId: "text" }, content: [{ type: "text", text: "初稿" }] },
 ] });
 test("媒体排版保持格式与 Markdown 增强块保真，正文合并保留远端尺寸", () => {
-  assert.equal(EDITOR_SCHEMA_VERSION, 4);
+  assert.equal(EDITOR_SCHEMA_VERSION,9);
   const base = content(), server = structuredClone(base); server.content[0].attrs!.widthPercent = 75;
   const markdown = exportMarkdown("note", "hash", base).replace("初稿", "补充说明"), result = mergeMarkdown(base, server, markdown);
   assert.equal(result.conflicts.length, 0); assert.deepEqual(result.doc.content[0], server.content[0]);

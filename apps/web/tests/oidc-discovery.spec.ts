@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { admin, api, login } from "./helpers";
+import { admin, api, login , openWorkspaceSettings} from "./helpers";
 test.skip(
   process.env.CASDOOR_TEST !== "1",
   "Requires isolated mock identity service",
@@ -37,7 +37,7 @@ test("应用 discovery 被拒绝时，配置检查、实际 OIDC 登录与管理
     });
     await page.goto("/api/auth/casdoor/start");
     await expect(
-      page.getByRole("button", { name: "ANote", exact: true }),
+      page.getByRole("button", { name: "简单笔记", exact: true }),
     ).toBeVisible();
     const current = await page.evaluate(async () =>
       fetch("/api/auth/session").then((r) => r.json()),
@@ -46,10 +46,7 @@ test("应用 discovery 被拒绝时，配置检查、实际 OIDC 登录与管理
     expect(current.user.is_admin).toBe(false);
     await page.context().clearCookies();
     await login(page);
-    await page
-      .locator(".academic-user")
-      .getByRole("button", { name: "设置", exact: true })
-      .click();
+    await openWorkspaceSettings(page);
     await page
       .getByRole("button", { name: "平台管理", exact: true })
       .first()

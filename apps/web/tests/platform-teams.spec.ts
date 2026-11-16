@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { api, admin, login } from "./helpers";
+import { api, admin, login, accountMenu, openWorkspaceSettings} from "./helpers";
 const password = "Team-platform-test-123!";
 test("移出团队关闭实时连接，平台会话撤销与普通用户修改本地密码", async ({
   request,
@@ -466,7 +466,7 @@ test("团队首页显示公告、置顶与最近笔记，普通用户可从界�
   const root = await admin(request),
     owner = await account(request, root, "界面用户");
   await login(page, owner);
-  await page.getByRole("button", { name: /^我的团队/ }).click();
+  await accountMenu(page,"团队管理");
   await page.getByRole("button", { name: "创建团队", exact: true }).click();
   await page.getByLabel("团队名称", { exact: true }).fill("影视研究小组");
   await page
@@ -522,7 +522,7 @@ test("团队首页显示公告、置顶与最近笔记，普通用户可从界�
     path: "artifacts/web/team-members.png",
     fullPage: true,
   });
-  await page.locator(".team-hub .management-tabs").getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".team-hub>.management-tabs").getByRole("button",{name:"设置",exact:true}).click();
   await expect(page.getByLabel("允许团队笔记对外分享")).not.toBeChecked();
   await page.screenshot({
     path: "artifacts/web/team-settings.png",
@@ -552,7 +552,7 @@ test("平台设置只有平台管理员能修改，域名配置动态生效且�
       "admin/settings",
       {
         revision: original.revision,
-        site_name: "ANote",
+        site_name: "简单笔记",
         public_origin: "https://new-notes.example.test",
       },
       root,
@@ -579,10 +579,7 @@ test("平台设置只有平台管理员能修改，域名配置动态生效且�
     );
   }
   await login(page);
-  await page
-    .locator(".academic-user")
-    .getByRole("button", { name: "设置", exact: true })
-    .click();
+  await openWorkspaceSettings(page);
   await page
     .getByRole("button", { name: "平台管理", exact: true })
     .first()

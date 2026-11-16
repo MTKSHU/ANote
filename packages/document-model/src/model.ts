@@ -7,6 +7,7 @@ import {
   type JSONContent,
 } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import Paragraph from "@tiptap/extension-paragraph";
 import {TaskList,TaskItem} from "@tiptap/extension-list";
 export {TaskList,TaskItem};
 import {
@@ -17,6 +18,7 @@ import {
 } from "@tiptap/extension-table";
 import { Plugin } from "@tiptap/pm/state";
 import { newId } from "./id.js";
+import { noteIdFromHref } from "./note-links.js";
 
 export interface RichNode {
   type: string;
@@ -26,7 +28,13 @@ export interface RichNode {
   marks?: { type: string; attrs?: Record<string, any> }[];
 }
 export type RichDoc = { type: "doc"; content: RichNode[] };
-export const EDITOR_SCHEMA_VERSION = 4;
+export const EDITOR_SCHEMA_VERSION = 9;
+export const Mention = Mark.create({
+  name:"mention",inclusive:false,excludes:"mention link",
+  addAttributes(){return {userId:{default:null,parseHTML:el=>el.getAttribute("data-mention-user")},mentionId:{default:null,parseHTML:el=>el.getAttribute("data-mention-id")},actorId:{default:null,parseHTML:el=>el.getAttribute("data-mention-actor")}};},
+  parseHTML(){return [{tag:"span[data-mention-user]"}];},
+  renderHTML({mark}){return ["span",{class:"user-mention","data-mention-user":mark.attrs.userId,"data-mention-id":mark.attrs.mentionId,"data-mention-actor":mark.attrs.actorId},0];},
+});
 const latexAttribute = {
   default: "",
   parseHTML: (el: HTMLElement) => el.getAttribute("data-latex") || "",
@@ -100,7 +108,7 @@ export const MindMap = Node.create({
   isolating: true,
   draggable: true,
   addAttributes() {
-    return { blockId: { default: null } };
+    return { blockId: { default: null },canvasHeight:{default:420,parseHTML:(el:HTMLElement)=>{const height=Number(el.getAttribute("data-canvas-height"));return Number.isInteger(height)&&height>=240&&height<=1600?height:420;},renderHTML:(attrs:Record<string,any>)=>({"data-canvas-height":attrs.canvasHeight||420})} };
   },
   parseHTML() {
     return [{ tag: "section[data-mind-map]" }];
@@ -126,6 +134,11 @@ export const MediaResource = Node.create({
       localPath: { default: "" },
       title: { default: "" },
       kind: { default: "file" },
+      projection: {
+        default: "flat",
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-projection") === "equirectangular" ? "equirectangular" : "flat",
+        renderHTML: (attrs: Record<string, any>) => ({ "data-projection": attrs.projection === "equirectangular" ? "equirectangular" : "flat" }),
+      },
       widthPercent: {
         default: null,
         parseHTML: (el: HTMLElement) => {
@@ -166,6 +179,7 @@ export const ImageComparison = Node.create({
       images: { default: [] },
       caption: { default: "" },
       layout: { default: "slider" },
+      orientation: { default: "horizontal" },
       slider: { default: 50 },
       zoom: { default: 1 },
       panX: { default: 0 },
@@ -189,20 +203,78 @@ const background = {
   renderHTML: (attrs: Record<string, any>) =>
     attrs.background ? { style: `background-color:${attrs.background}` } : {},
 };
+const verticalAlign = {
+  default: undefined,
+  parseHTML: (element: HTMLElement) =>
+    ["top", "middle", "bottom"].includes(element.style.verticalAlign)
+      ? element.style.verticalAlign : undefined,
+  renderHTML: (attrs: Record<string, any>) =>
+    ["top", "middle", "bottom"].includes(attrs.verticalAlign)
+      ? { style: `vertical-align:${attrs.verticalAlign}` } : {},
+};
 const ColoredCell = TableCell.extend({
   addAttributes() {
-    return { ...this.parent?.(), background };
+    return { ...this.parent?.(), background, verticalAlign };
   },
 });
 const ColoredHeader = TableHeader.extend({
   addAttributes() {
-    return { ...this.parent?.(), background };
+    return { ...this.parent?.(), background, verticalAlign };
+  },
+});
+// Use the first character's explicit size when present. Changing only an
+// inline span's font size must also change the two-character indentation.
+// Otherwise em follows the paragraph's font, including the print stylesheet.
+export function firstLineIndentCSS(node: RichNode): string | undefined {
+  if (node.type !== "paragraph" || node.attrs?.firstLineIndent !== 2) return;
+  const first = node.content?.find(child => child.type === "text" && child.text?.length);
+  const size = first?.marks?.find(mark => mark.type === "textStyle")?.attrs?.fontSize;
+  return FONT_SIZES.includes(size) ? `${size * 2}px` : "2em";
+}
+export const IndentedParagraph = Paragraph.extend({
+  addAttributes() {
+    return { ...this.parent?.(), firstLineIndent: {
+      default: undefined,
+      parseHTML: (element: HTMLElement) =>
+        element.dataset.firstLineIndent === "2" || ["2em", "2ic"].includes(element.style.textIndent) ? 2 : undefined,
+      renderHTML: () => ({}),
+    } };
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    const indent = node.attrs.firstLineIndent === 2 ? firstLineIndentCSS(node.toJSON() as RichNode) : undefined;
+    return ["p", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes,
+      indent ? { "data-first-line-indent": "2", style: `text-indent:${indent}` } : {}), 0];
+  },
+  addCommands() {
+    return { ...this.parent?.(), setFirstLineIndent: (indent: 2 | null) => ({ state, tr, dispatch }) => {
+      if (indent !== 2 && indent !== null) return false;
+      const positions = new Set<number>();
+      for (const range of state.selection.ranges) {
+        state.doc.nodesBetween(range.$from.pos, range.$to.pos, (node, pos) => {
+          if (node.type.name !== "paragraph") return;
+          const point = state.doc.resolve(pos);
+          // List markers already provide indentation; do not add a first-line
+          // offset to list/task text when a multi-paragraph range includes it.
+          for (let depth = point.depth; depth > 0; depth--)
+            if (["listItem", "taskItem"].includes(point.node(depth).type.name)) return;
+          positions.add(pos);
+        });
+      }
+      if (!positions.size) return false;
+      if (dispatch) for (const pos of positions) {
+        const node = tr.doc.nodeAt(pos)!;
+        if (node.attrs.firstLineIndent !== (indent ?? undefined))
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, firstLineIndent: indent ?? undefined });
+      }
+      return true;
+    } };
   },
 });
 export const StableBlockId = Extension.create({
   name: "stableBlockId",
   addGlobalAttributes() {
     return [
+      {types:["codeBlock"],attributes:{canvasHeight:{default:420,parseHTML:(el:HTMLElement)=>{const height=Number(el.getAttribute("data-canvas-height"));return Number.isInteger(height)&&height>=240&&height<=1600?height:420;},renderHTML:(attrs:Record<string,any>)=>({"data-canvas-height":attrs.canvasHeight||420})}}},
       {
         types: [
           "paragraph",
@@ -416,6 +488,7 @@ export const AcademicTextStyle = Mark.create({
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
+    paragraphIndent: { setFirstLineIndent: (indent: 2 | null) => ReturnType };
     academicTextAlignment: { setTextAlign: (alignment: string) => ReturnType };
     academicTextStyle: {
       setAcademicTextStyle: (attrs: {
@@ -429,6 +502,7 @@ declare module "@tiptap/core" {
 export function extensions() {
   return [
     StarterKit.configure({
+      paragraph: false,
       undoRedo: false,
       link: {
         autolink: true,
@@ -436,12 +510,13 @@ export function extensions() {
         openOnClick: false,
         defaultProtocol: "https",
         isAllowedUri: (url, ctx) =>
-          ctx.defaultValidate(url) &&
+          !!noteIdFromHref(url) || ctx.defaultValidate(url) &&
           (/^(https?:\/\/|mailto:)/i.test(url) ||
             /^[\w-]+(?:\.[\w-]+)+(?::\d+)?(?:[/?#][^\s]*)?$/.test(url)),
       },
     }),
     StableBlockId,
+    IndentedParagraph,
     TaskList,
     TaskItem.configure({nested:true,a11y:{checkboxLabel:node=>"待办："+(node.textContent||"空白待办")}}),
     TextAlignment,
@@ -456,6 +531,7 @@ export function extensions() {
     MindMapItem,
     MathBlock,
     InlineMath,
+    Mention,
   ];
 }
 export const schema = getSchema(extensions());

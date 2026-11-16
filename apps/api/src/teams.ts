@@ -15,6 +15,38 @@ import { db, digest, transaction } from "./database.js";
 import { user, type User } from "./auth.js";
 import { fail, text, optionalText, identifier } from "./errors.js";
 import { Documents } from "./documents.js";
+import { noteExcerpt } from "./note-excerpt.js";
+import type {PoolClient} from "pg";
+import {notifyTeamInvite} from "./social.js";
+
+async function lockedInvitation(client:PoolClient,field:"id"|"token_hash",value:string) {
+  // Preserve team-deletion's team -> invitation lock order.
+  const team=(await client.query(`SELECT t.id,t.archived,t.deleted_at FROM teams t JOIN team_invites i ON i.team_id=t.id WHERE i.${field}=$1 FOR SHARE OF t`,[value])).rows[0];
+  if(!team||team.archived||team.deleted_at)fail(404,"邀请已失效");
+  const invitation=(await client.query(`SELECT * FROM team_invites WHERE ${field}=$1 FOR UPDATE`,[value])).rows[0];
+  if(!invitation)fail(404,"邀请已失效");
+  return invitation;
+}
+async function joinInvitation(client:PoolClient,row:any,account:User,fromNotification=false) {
+  if(row.target_user_id&&row.target_user_id!==account.id)fail(403,"此邀请仅限被邀请账号接受");
+  if(row.revoked_at||row.declined_at||new Date(row.expires_at).getTime()<=Date.now())fail(404,"邀请已失效");
+  if(!row.reusable&&row.accepted_by) {
+    const joined=fromNotification&&row.accepted_by===account.id&&(await client.query("SELECT 1 FROM team_members WHERE team_id=$1 AND user_id=$2",[row.team_id,account.id])).rowCount;
+    if(joined)return {team_id:row.team_id};
+    fail(404,"邀请已失效");
+  }
+  const person=(await client.query("SELECT email,email_verified FROM users WHERE id=$1 AND active FOR SHARE",[account.id])).rows[0];
+  if(!person)fail(403,"账号已停用");
+  if(row.email&&(!person.email_verified||person.email?.toLowerCase()!==row.email))fail(403,"此邀请需要使用对应的已验证邮箱账号接受");
+  const added=await client.query("INSERT INTO team_members(team_id,user_id,role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING RETURNING user_id",[row.team_id,account.id]);
+  if(added.rowCount) {
+    await client.query("INSERT INTO team_invite_acceptances(invite_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[row.id,account.id]);
+    await client.query("INSERT INTO audit_events(actor,action,target,detail) VALUES($1,'team.join',$2,$3)",[account.id,row.team_id,{invite_id:row.id}]);
+  }
+  if(!row.reusable)await client.query("UPDATE team_invites SET accepted_by=$2 WHERE id=$1",[row.id,account.id]);
+  await client.query("UPDATE notifications SET read_at=COALESCE(read_at,now()) WHERE user_id=$1 AND invite_id=$2",[account.id,row.id]);
+  return {team_id:row.team_id};
+}
 export async function teamRole(
   account: User,
   id: string,
@@ -46,8 +78,8 @@ export async function listTeams(account: User) {
 }
 async function visiblePins(account: User, team: any) {
   if (team.archived || !team.pinned_note_ids?.length) return [];
-  const rows = (await db.query("SELECT d.id FROM documents d JOIN spaces s ON s.id=d.space_id WHERE s.team_id=$1 AND d.id=ANY($2::text[]) AND NOT d.archived AND effective_document_role($3,d.id) IS NOT NULL",[team.id,team.pinned_note_ids,account.id])).rows;
-  return team.pinned_note_ids.filter((id: string) => rows.some(r => r.id === id));
+  const rows = (await db.query("SELECT d.id FROM documents d JOIN spaces s ON s.id=d.space_id WHERE s.team_id=$1 AND d.id=ANY($2::text[]) AND NOT d.archived AND NOT s.archived AND effective_document_role($3,d.id) IS NOT NULL",[team.id,team.pinned_note_ids,account.id])).rows;
+  return [...new Set<string>(team.pinned_note_ids)].filter((id: string) => id!==team.announcement_doc_id&&rows.some(r => r.id === id)).slice(0,team.announcement_doc_id?2:3);
 }
 export async function createTeam(account: User, input: any) {
   const id = randomUUID(),
@@ -103,9 +135,15 @@ export class TeamsController {
             [id, account.id],
           )
         ).rows;
+    const visiblePinIds=await visiblePins(account,team);
     return {
       ...team,
-      pinned_note_ids: await visiblePins(account,team),
+      pinned_note_ids: visiblePinIds,
+      pinned_note_summaries: team.archived ? [] : (await db.query(
+        `SELECT d.id,d.title,d.snapshot FROM documents d JOIN spaces s ON s.id=d.space_id
+         WHERE s.team_id=$1 AND d.id=ANY($2::text[]) AND NOT d.archived AND NOT s.archived AND effective_document_role($3,d.id) IS NOT NULL`,
+        [id,[...new Set([team.announcement_doc_id,...visiblePinIds].filter(Boolean))],account.id],
+      )).rows.map(note=>({id:note.id,excerpt:noteExcerpt(note.snapshot,note.title)})),
       libraries: libraries.map(({catalog_order,...library}) => library),
       members: (
         await db.query(
@@ -117,7 +155,7 @@ export class TeamsController {
         team.role === "admin"
           ? (
               await db.query(
-                "SELECT i.id,i.email,i.expires_at,i.revoked_at,i.accepted_by,i.reusable,(SELECT count(*)::int FROM team_invite_acceptances a WHERE a.invite_id=i.id) AS acceptance_count FROM team_invites i WHERE i.team_id=$1 ORDER BY i.created_at DESC LIMIT 100",
+                "SELECT i.id,i.email,i.expires_at,i.revoked_at,i.declined_at,i.accepted_by,i.reusable,(SELECT count(*)::int FROM team_invite_acceptances a WHERE a.invite_id=i.id) AS acceptance_count FROM team_invites i WHERE i.team_id=$1 ORDER BY i.created_at DESC LIMIT 100",
                 [id],
               )
             ).rows
@@ -131,9 +169,9 @@ export class TeamsController {
   ) {
     const account = await user(req);
     const team = await teamRole(account, id, true, true);
-    const pins = input.pinned_note_ids === undefined ? team.pinned_note_ids : input.pinned_note_ids;
-    if (!Array.isArray(pins) || pins.length > 20 || pins.some(p => typeof p !== "string")) fail(400,"最多置顶 20 篇笔记");
-    if (input.pinned_note_ids !== undefined && pins.length && Number((await db.query("SELECT count(*) FROM documents d JOIN spaces s ON s.id=d.space_id WHERE d.id=ANY($1::text[]) AND s.team_id=$2 AND NOT d.archived AND effective_document_role($3,d.id) IS NOT NULL",[pins,id,account.id])).rows[0].count) !== new Set(pins).size) fail(400,"置顶笔记必须属于本团队且可访问");
+    const pins = input.pinned_note_ids === undefined ? [...new Set<string>(team.pinned_note_ids)].filter(pin=>pin!==team.announcement_doc_id).slice(0,team.announcement_doc_id?2:3) : input.pinned_note_ids;
+    if (!Array.isArray(pins) || pins.length > 3 || pins.some(p => typeof p !== "string")) fail(400,"最多置顶 3 篇笔记");
+    if (input.pinned_note_ids !== undefined && pins.length && Number((await db.query("SELECT count(*) FROM documents d JOIN spaces s ON s.id=d.space_id WHERE d.id=ANY($1::text[]) AND s.team_id=$2 AND NOT d.archived AND NOT s.archived AND effective_document_role($3,d.id) IS NOT NULL",[pins,id,account.id])).rows[0].count) !== new Set(pins).size) fail(400,"置顶笔记必须属于本团队且可访问");
     for (const k of [
       "allow_external_sharing",
       "members_can_create_libraries",
@@ -145,6 +183,7 @@ export class TeamsController {
       input.announcement_doc_id === undefined
         ? team.announcement_doc_id
         : input.announcement_doc_id;
+    if(new Set([announcement,...pins].filter(Boolean)).size>3)fail(400,"首页最多置顶 3 篇笔记（包含首页公告），请先移除一篇置顶笔记");
     if (
       announcement &&
       announcement !== team.announcement_doc_id &&
@@ -309,13 +348,15 @@ export class TeamsController {
         identifier(id),
       ]);
       await teamRole(account, id, true);
+      const recipient=email?(await client.query("SELECT u.id FROM users u WHERE u.active AND u.email_verified AND lower(u.email)=$1 FOR SHARE",[email])).rows[0]:null;
       const token = randomBytes(32).toString("base64url"),
         invitation = (
           await client.query(
-            "INSERT INTO team_invites(id,team_id,token_hash,email,created_by,expires_at,reusable) VALUES($1,$2,$3,$4,$5,now()+interval '7 days',$6) RETURNING id,email,expires_at,reusable",
-            [randomUUID(), id, digest(token), email, account.id, !email],
+            "INSERT INTO team_invites(id,team_id,token_hash,email,created_by,expires_at,reusable,target_user_id) VALUES($1,$2,$3,$4,$5,now()+interval '7 days',$6,$7) RETURNING id,email,expires_at,reusable",
+            [randomUUID(), id, digest(token), email, account.id, !email,recipient?.id||null],
           )
         ).rows[0];
+      if(recipient&&!(await client.query("SELECT 1 FROM team_members WHERE team_id=$1 AND user_id=$2",[id,recipient.id])).rowCount)await notifyTeamInvite(client,invitation.id,recipient.id,account.id);
       await client.query(
         "INSERT INTO audit_events(actor,action,target) VALUES($1,'team.invite',$2)",
         [account.id, id],
@@ -339,72 +380,35 @@ export class TeamsController {
     @Req() req: Request,
     @Param("token") token: string,
   ) {
-    await user(req);
+    const account=await user(req);
     const row = (
       await db.query(
-        "SELECT t.name,i.email,i.expires_at,i.reusable FROM team_invites i JOIN teams t ON t.id=i.team_id WHERE i.token_hash=$1 AND i.expires_at>now() AND i.revoked_at IS NULL AND (i.reusable OR i.accepted_by IS NULL) AND NOT t.archived AND t.deleted_at IS NULL",
-        [digest(token)],
+        "SELECT t.name,i.email,i.expires_at,i.reusable FROM team_invites i JOIN teams t ON t.id=i.team_id WHERE i.token_hash=$1 AND i.expires_at>now() AND i.revoked_at IS NULL AND i.declined_at IS NULL AND (i.target_user_id IS NULL OR i.target_user_id=$2) AND (i.reusable OR i.accepted_by IS NULL) AND NOT t.archived AND t.deleted_at IS NULL",
+        [digest(token),account.id],
       )
     ).rows[0];
     if (!row) fail(404, "邀请已失效");
     return row;
+  }
+  @Patch("team-invitation-notifications/:id") async respond(@Req() req:Request,@Param("id") id:string,@Body() input:any) {
+    const account=await user(req);if(!["accept","reject"].includes(input?.action))fail(400,"邀请操作无效");
+    return transaction(async client=>{
+      const notification=(await client.query("SELECT invite_id FROM notifications WHERE id=$1 AND user_id=$2 AND kind='team_invite'",[identifier(id),account.id])).rows[0];
+      if(!notification?.invite_id)fail(404,"邀请通知不存在");
+      const invitation=await lockedInvitation(client,"id",notification.invite_id);
+      if(invitation.target_user_id!==account.id)fail(404,"邀请通知不存在");
+      if(input.action==="accept")return joinInvitation(client,invitation,account,true);
+      if(invitation.accepted_by||invitation.revoked_at||new Date(invitation.expires_at).getTime()<=Date.now())fail(404,"邀请已失效");
+      await client.query("UPDATE team_invites SET declined_at=COALESCE(declined_at,now()) WHERE id=$1",[invitation.id]);
+      await client.query("UPDATE notifications SET read_at=COALESCE(read_at,now()) WHERE id=$1 AND user_id=$2",[id,account.id]);
+      return {ok:true};
+    });
   }
   @Post("team-invitations/:token/accept") async accept(
     @Req() req: Request,
     @Param("token") token: string,
   ) {
     const account = await user(req);
-    return transaction(async (client) => {
-      // Match team deletion's lock order. Keep the team's state stable until
-      // joining completes, then serialize acceptance/revocation on the link.
-      const team = (
-        await client.query(
-          "SELECT t.id,t.archived,t.deleted_at FROM teams t JOIN team_invites i ON i.team_id=t.id WHERE i.token_hash=$1 FOR SHARE OF t",
-          [digest(token)],
-        )
-      ).rows[0];
-      if (!team || team.archived || team.deleted_at) fail(404, "邀请已失效");
-      const row = (
-        await client.query(
-          "SELECT * FROM team_invites WHERE token_hash=$1 FOR UPDATE",
-          [digest(token)],
-        )
-      ).rows[0];
-      if (
-        !row ||
-        row.revoked_at ||
-        (!row.reusable && row.accepted_by) ||
-        new Date(row.expires_at).getTime() <= Date.now()
-      )
-        fail(404, "邀请已失效");
-      const person = (
-        await client.query(
-          "SELECT email,email_verified FROM users WHERE id=$1 AND active",
-          [account.id],
-        )
-      ).rows[0];
-      if (!person) fail(403, "账号已停用");
-      if (
-        row.email &&
-        (!person?.email_verified || person.email?.toLowerCase() !== row.email)
-      )
-        fail(403, "此邀请需要使用对应的已验证邮箱账号接受");
-      const added = await client.query(
-        "INSERT INTO team_members(team_id,user_id,role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING RETURNING user_id",
-        [row.team_id, account.id],
-      );
-      if (added.rowCount) {
-        await client.query(
-          "INSERT INTO team_invite_acceptances(invite_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
-          [row.id, account.id],
-        );
-        if (!row.reusable) await client.query("UPDATE team_invites SET accepted_by=$2 WHERE id=$1", [row.id, account.id]);
-        await client.query(
-          "INSERT INTO audit_events(actor,action,target,detail) VALUES($1,'team.join',$2,$3)",
-          [account.id, row.team_id, {invite_id: row.id}],
-        );
-      }
-      return { team_id: row.team_id };
-    });
+    return transaction(async client=>joinInvitation(client,await lockedInvitation(client,"token_hash",digest(token)),account));
   }
 }

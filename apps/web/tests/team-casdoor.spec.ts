@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { Pool } from "pg";
-import { api, admin, login } from "./helpers";
+import { api, admin, login , openWorkspaceSettings} from "./helpers";
 test.describe("OIDC 平台认证", () => {
   test.skip(
     process.env.CASDOOR_TEST !== "1",
@@ -92,7 +92,7 @@ test.describe("OIDC 平台认证", () => {
     await page.goto("/");
     await page.getByRole("link", { name: "使用 Casdoor 统一登录" }).click();
     await expect(
-      page.getByRole("button", { name: "ANote", exact: true }),
+      page.getByRole("button", { name: "简单笔记", exact: true }),
     ).toBeVisible();
     const current = await page.evaluate(async () =>
       fetch("/api/auth/session").then((r) => r.json()),
@@ -121,7 +121,7 @@ test.describe("OIDC 平台认证", () => {
     await control(request);
     await page.goto("/api/auth/casdoor/start");
     await expect(
-      page.getByRole("button", { name: "ANote", exact: true }),
+      page.getByRole("button", { name: "简单笔记", exact: true }),
     ).toBeVisible();
     const current = await page.evaluate(async () =>
       fetch("/api/auth/session").then((r) => r.json()),
@@ -146,14 +146,14 @@ test.describe("OIDC 平台认证", () => {
       400,
     );
     expect(await api(request, "GET", "teams", undefined, current)).toEqual([]);
-    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await openWorkspaceSettings(page);
     const settings = page.getByRole("dialog", { name: "设置", exact: true });
     await settings.getByLabel("昵称", { exact: true }).fill("我的统一认证昵称");
     await settings.getByRole("button", { name: "保存昵称", exact: true }).click();
     await expect(settings.locator(".profile-card h3")).toHaveText("我的统一认证昵称");
     await page.request.post("/api/auth/logout");
     await page.goto("/api/auth/casdoor/start");
-    await expect(page.locator(".academic-user")).toContainText("我的统一认证昵称");
+    await expect(page.locator(".workspace-account-menu > summary .user-avatar")).toHaveText("我");
     const fresh = await page.request.get("/api/me").then(r => r.json());
     expect(fresh.id).toBe(current.user.id);
     expect(fresh.name).toBe("我的统一认证昵称");
@@ -355,7 +355,7 @@ test.describe("OIDC 平台认证", () => {
       const link = await api(request, "POST", "auth/casdoor/link", {}, root);
       await page.goto(link.url);
       await expect(
-        page.getByRole("button", { name: "ANote", exact: true }),
+        page.getByRole("button", { name: "简单笔记", exact: true }),
       ).toBeVisible();
       await api(
         request,
@@ -405,7 +405,7 @@ test.describe("OIDC 平台认证", () => {
         {
           revision: moved.revision,
           public_origin: beforeDomain.public_origin,
-          site_name: "ANote",
+          site_name: "简单笔记",
         },
         root,
       );

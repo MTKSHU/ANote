@@ -3,6 +3,8 @@ export type UploadCategory =
   | "image"
   | "audio"
   | "video"
+  | "panoramaImage"
+  | "panoramaVideo"
   | "document"
   | "project"
   | "comparison";
@@ -24,6 +26,16 @@ export const uploadTypes: Record<
     label: translateUI("视频"),
     accept: "video/*,.mp4,.webm,.mov,.mkv",
     hint: translateUI("视频播放器"),
+  },
+  panoramaImage: {
+    label: translateUI("360° 全景图片"),
+    accept: "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp",
+    hint: translateUI("2:1 等距柱状全景图片，拖动查看四周"),
+  },
+  panoramaVideo: {
+    label: translateUI("360° 全景视频"),
+    accept: "video/*,.mp4,.webm,.mov,.mkv",
+    hint: translateUI("2:1 等距柱状全景视频，播放时自由转动视角"),
   },
   document: {
     label: translateUI("附件"),

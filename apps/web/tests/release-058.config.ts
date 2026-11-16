@@ -1,0 +1,2 @@
+import {defineConfig,devices} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'library-archive.spec.ts',workers:1,timeout:90000,expect:{timeout:15000},reporter:[['list'],['json',{outputFile:'../../../artifacts/release-058/web/results.json'}]],outputDir:'../../../artifacts/release-058/web/test-results',use:{baseURL:process.env.BASE_URL||'http://anote.internal:3000',headless:true,trace:'retain-on-failure',screenshot:'only-on-failure'},projects:[{name:'desktop',use:{viewport:{width:1440,height:1000}}},{name:'mobile',use:{...devices['Pixel 7']}}]});

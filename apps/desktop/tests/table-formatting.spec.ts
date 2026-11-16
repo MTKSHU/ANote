@@ -1,0 +1,29 @@
+import {test,expect,_electron} from '@playwright/test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {prosemirrorJSONToYDoc} from '@tiptap/y-tiptap';
+import * as Y from 'yjs';
+import {schema} from '@anote/document-model';
+import {PersonalStore} from '../main/personal-store.mjs';
+
+test('本地桌面拖选保持文字；新排版保存、重开及实际 PDF 均保留',async()=>{
+  expect(process.env.ANOTE_ISOLATED_TESTS).toBe('1');const root=path.resolve('artifacts/table-paragraph/native-'+randomUUID()),directory=root+'/notes',profile=root+'/profile',pdf=root+'/layout.pdf';await fs.mkdir(directory,{recursive:true});await fs.mkdir(profile);
+  const store=await new PersonalStore(directory).load(),invoke=async(route:string,method='GET',body?:any)=>{const url=new URL('/api/'+route,'http://local'),response=await store.respond(new Request(url,{method,...(body?{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})}),url);expect(response.ok,await response.clone().text()).toBe(true);return response.json();};
+  const book=await invoke('spaces','POST',{kind:'personal',name:'本地排版'}),note=await invoke('documents','POST',{space_id:book.id,title:'本地排版 PDF'}),p=(text:string)=>({type:'paragraph',attrs:{blockId:randomUUID()},content:[{type:'text',text}]}),snapshot={type:'doc',content:[p('IndentFirst 中文首行缩进。'.repeat(20)),{type:'table',attrs:{blockId:randomUUID()},content:[{type:'tableRow',content:[{type:'tableCell',content:[p('BottomCell')]},{type:'tableCell',content:[p('TallOne'),p('TallTwo'),p('TallThree')]}]}]},p('AfterTable')]},doc=prosemirrorJSONToYDoc(schema,snapshot,'default');
+  try{await invoke('documents/'+note.id+'/local-state','PUT',{ystate:Buffer.from(Y.encodeStateAsUpdate(doc)).toString('base64')});}finally{doc.destroy();}const file=await store.safe('notes/'+note.id+'.json');await store.close();await fs.writeFile(profile+'/personal-mode.json',JSON.stringify({directory}));
+  const executable=process.env.DESKTOP_EXECUTABLE;const app=await _electron.launch({...(executable?{executablePath:path.resolve(executable)}:{}),args:['--no-sandbox','--password-store=basic',...(executable?[]:['apps/desktop']),'--document='+note.id],env:{...process.env,ANOTE_CLIENT_DATA_DIR:profile,ANOTE_DESKTOP_TEST:'1'}});
+  try{
+    if(process.env.DESKTOP_EXPECTED_VERSION)expect(await app.evaluate(({app})=>app.getVersion())).toBe(process.env.DESKTOP_EXPECTED_VERSION);
+    const page=await app.firstWindow(),editor=page.getByTestId('editor');await expect(editor).toHaveAttribute('contenteditable','true');const first=editor.locator(':scope>p').filter({hasText:'IndentFirst'}).first(),defaultIndent=await first.evaluate(el=>parseFloat(getComputedStyle(el).fontSize)*2+'px');await first.click();await page.getByRole('button',{name:/^段落格式：/}).click();await page.getByRole('menuitemradio',{name:'首行缩进 2 字符',exact:true}).click();await expect(first).toHaveCSS('text-indent',defaultIndent);
+    const cell=editor.locator('td').first(),text=cell.locator('p');await text.scrollIntoViewIfNeeded();const bounds=await text.evaluate(el=>{const range=document.createRange(),t=el.firstChild!;range.setStart(t,1);range.setEnd(t,2);const start=range.getBoundingClientRect();range.setStart(t,5);range.setEnd(t,6);const end=range.getBoundingClientRect();return {a:{x:start.x+1,y:start.y+start.height/2},b:{x:end.x+1,y:end.y+end.height/2}};}),header=(await page.locator('.document-header').boundingBox())!;
+    await page.mouse.move(bounds.a.x,bounds.a.y);await page.mouse.down();await page.mouse.move(bounds.b.x,bounds.b.y,{steps:8});await expect(page.getByRole('group',{name:'表格选区工具'})).toHaveCount(0);await expect(editor.locator('.selectedCell')).toHaveCount(0);expect((await page.locator('.document-header').boundingBox())!.height).toBe(header.height);await page.mouse.up();await expect(page.getByRole('toolbar',{name:'选区格式'})).toBeVisible();await expect(page.getByRole('toolbar',{name:'表格操作',exact:true})).toHaveCount(0);
+    await page.keyboard.press('Shift+F10');await page.getByRole('button',{name:'单元格垂直对齐',exact:true}).click();await page.getByRole('button',{name:'底部对齐',exact:true}).click();await expect(cell).toHaveCSS('vertical-align','bottom');await page.keyboard.press('Control+s');
+    const saved=async()=>JSON.parse(await fs.readFile(file,'utf8')).snapshot;await expect.poll(async()=>(await saved()).content.find((n:any)=>n.content?.[0]?.text?.startsWith('IndentFirst')).attrs.firstLineIndent).toBe(2);await expect.poll(async()=>(await saved()).content.find((n:any)=>n.type==='table').content[0].content[0].attrs.verticalAlign).toBe('bottom');await page.reload();await expect(editor.locator(':scope>p').filter({hasText:'IndentFirst'}).first()).toHaveCSS('text-indent',defaultIndent);await expect(editor.locator('td').first()).toHaveCSS('vertical-align','bottom');
+    await app.evaluate(({dialog},destination)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:destination});},pdf);await page.getByRole('button',{name:'笔记更多操作',exact:true}).click();await page.getByRole('button',{name:'导出 PDF',exact:true}).click();await expect.poll(()=>fs.stat(pdf).then(s=>s.size).catch(()=>0)).toBeGreaterThan(2000);
+    const bbox=execFileSync('pdftotext',['-bbox',pdf,'-'],{encoding:'utf8'});await fs.writeFile(root+'/layout.bbox.html',bbox);expect(bbox).toContain('BottomCell');
+    const word=(text:string)=>{const match=new RegExp('<word xMin="([\\d.]+)" yMin="([\\d.]+)" xMax="([\\d.]+)" yMax="([\\d.]+)">'+text+'</word>').exec(bbox);expect(match,text+' in PDF').toBeTruthy();return {x:Number(match![1]),y:Number(match![2])};};
+    const indented=word('IndentFirst'),after=word('AfterTable'),bottom=word('BottomCell'),top=word('TallOne'),last=word('TallThree');expect(indented.x-after.x).toBeCloseTo(22,0);expect(bottom.y-top.y).toBeGreaterThan(20);expect(Math.abs(bottom.y-last.y)).toBeLessThan(2);
+  }finally{await app.close();}
+});

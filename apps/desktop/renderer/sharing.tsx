@@ -1,4 +1,4 @@
-import { t as translateUI, getLocale as uiLocale } from "@anote/i18n";
+import { t as translateUI } from "@anote/i18n";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useResearchEditor, ResearchEditorContent } from "@anote/editor";
 import { schema } from "@anote/document-model";
@@ -6,6 +6,7 @@ import { prosemirrorJSONToYDoc } from "@tiptap/y-tiptap";
 import { request } from "./native";
 import { useDialog, DialogClose } from "./dialog";
 import { Icon } from "./icons";
+import {WatermarkFields,ShareLinkRecord,ShareWatermark} from "./share-link-settings";
 
 export function Sharing({
   id,
@@ -27,6 +28,7 @@ export function Sharing({
     [days, setDays] = useState<number | null>(7),
     [busy, setBusy] = useState(false);
   const dialog = useDialog(onClose, {disabled:busy});
+  const [watermarkEnabled,setWatermarkEnabled]=useState(true),[watermarkText,setWatermarkText]=useState("");
   const currentId = useRef(id); currentId.current = id;
   async function refresh() {
     const next = await request(`documents/${id}/sharing`);
@@ -186,13 +188,14 @@ export function Sharing({
             </div>
             <p className="muted">{translateUI("恢复仅自己可见会移除指定成员，并撤销所有外链。 ")}</p>
             </> : <>
-              <p className="muted">{translateUI("个人笔记默认仅自己可见，可以生成只读外部链接。")}</p>
+              <p className="muted">{value.library_shared ? translateUI("此笔记随所在知识库提供整库只读访问。如需保持私密，请移入未分享的个人知识库。") : translateUI("个人笔记默认仅自己可见，可以生成只读外部链接。")}</p>
               {value.collaborators.length > 0 && <p className="muted">{translateUI("此笔记已有 ")}{value.collaborators.length}{translateUI(" 项协作授权，可恢复仅自己可见以关闭授权与外链。")}</p>}
-              <button disabled={busy} onClick={() => void save(true)}>{translateUI("恢复仅自己可见")}</button>
+              <button disabled={busy} onClick={() => void save(true)}>{value.library_shared ? translateUI("关闭笔记单独分享") : translateUI("恢复仅自己可见")}</button>
             </>}
             <hr />
             <h3>{translateUI("只读外部链接")}</h3>
             <p>{translateUI("持有链接的人可阅读正文及其中的附件。评论和历史版本不公开。")}</p>
+            <WatermarkFields enabled={watermarkEnabled} text={watermarkText} defaultText={value.watermark_default||translateUI("分享者昵称 · 平台名称")} onEnabled={setWatermarkEnabled} onText={setWatermarkText}/>
             <div className="copy-row">
               <select
                 aria-label={translateUI("外链有效期")}
@@ -213,7 +216,7 @@ export function Sharing({
                     const link = await request(
                       `documents/${id}/sharing/links`,
                       "POST",
-                      { days },
+                      { days,watermark_enabled:watermarkEnabled,watermark_text:watermarkText },
                     );
                     setURL(link.url || serverURL + link.path);
                     await refresh();
@@ -239,26 +242,7 @@ export function Sharing({
                 </div>
               </label>
             )}
-            {value.links.map((l: any) => (
-              <div className="collaborator" key={l.id}>
-                <small>{l.expires_at === null ? translateUI("永久有效") : translateUI("{0} 到期", [new Date(l.expires_at).toLocaleString(uiLocale())])}</small>
-                <button
-                  onClick={async () => {
-                    try {
-                      await request(
-                        `documents/${id}/sharing/links/${l.id}`,
-                        "DELETE",
-                      );
-                      setURL("");
-                      await refresh();
-                      onChanged();
-                    } catch (e) {
-                      setError(translateUI((e as Error).message));
-                    }
-                  }}
-                >{translateUI("撤销 ")}</button>
-              </div>
-            ))}
+            {value.links.map((link:any)=><ShareLinkRecord key={link.id} link={link} serverURL={serverURL} endpoint={`documents/${id}/sharing/links/${link.id}`} onChanged={async()=>{await refresh();onChanged();}} onRevoke={async()=>{await request(`documents/${id}/sharing/links/${link.id}`,"DELETE");setURL("");}}/>)}
           </>
         ) : (
           value && <p>{translateUI("当前笔记由所有者管理共享权限。")}</p>
@@ -282,8 +266,8 @@ export function ReadOnlyNote({ snapshot }: { snapshot: any }) {
   return <ResearchEditorContent editor={editor} />;
 }
 export function PublicNote({ token }: { token: string }) {
-  const [siteName,setSiteName] = useState("ANote");
-  useEffect(() => {let live=true;void request("platform/public").then(config=>{if(live)setSiteName(config.site_name || "ANote");}).catch(()=>{});return()=>{live=false;};},[]);
+  const [siteName,setSiteName] = useState(translateUI("简单笔记"));
+  useEffect(() => {let live=true;void request("platform/public").then(config=>{if(live)setSiteName(config.site_name || translateUI("简单笔记"));}).catch(()=>{});return()=>{live=false;};},[]);
   const [note, setNote] = useState<any>(null),
     [error, setError] = useState("");
   useEffect(() => {
@@ -317,6 +301,7 @@ export function PublicNote({ token }: { token: string }) {
       {note ? (
         <>
           <h1>{note.title}</h1>
+          <ShareWatermark value={note.watermark}/>
           <ReadOnlyNote snapshot={note.snapshot} />
         </>
       ) : (

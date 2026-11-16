@@ -60,6 +60,7 @@ function inline(nodes: RichNode[] = []): string {
       if (n.type !== "text") throw new Error(`不支持的行内节点：${n.type}`);
       let s = esc(n.text || "");
       for (const mark of n.marks || []) {
+        if (mark.type === "mention") continue;
         if (mark.type === "bold") s = `**${s}**`;
         else if (mark.type === "italic") s = `*${s}*`;
         else if (mark.type === "strike") s = `~~${s}~~`;
@@ -132,13 +133,13 @@ export function renderBlock(n: RichNode): string {
       (n.attrs?.images || [])
         .map(
           (im: any) =>
-            `![${esc(im.label)}](${im.localPath || `assets/${im.id}.svg`})`,
+            `![${esc(String(im.label || "图片"))}](${im.localPath || `assets/${im.id || im.assetId}.svg`})`,
         )
         .join("\n\n") +
       "\n\n> 滑动对比和联动视图由结构化版本保留，请在网页中编辑。"
     );
   if (n.type === "mediaResource")
-    return `${n.attrs?.kind === "image" ? "!" : ""}[${esc(n.attrs?.title || "资源")}](${n.attrs?.localPath})\n\n> 媒体预览与资源信息由结构化版本保留，请在应用中编辑。`;
+    return `${n.attrs?.kind === "image" ? "!" : ""}[${esc(n.attrs?.title || "资源")}](${n.attrs?.localPath})\n\n> ${n.attrs?.projection === "equirectangular" ? "360° 全景（等距柱状投影），全景显示方式与资源信息由结构化版本保留" : "媒体预览与资源信息由结构化版本保留"}，请在应用中编辑。`;
   if (n.type === "mindMap") {
     const items = n.content || [],
       visited = new Set<RichNode>();
@@ -489,6 +490,31 @@ function inheritInlineStyles(base: RichNode, local: RichNode) {
     throw new Error("带样式内容的结构发生变化，需要人工确认；原格式已保留");
 }
 
+// Markdown displays mentions as ordinary @names. Retain their identities only
+// when the entire original mention survives as one unchanged text range.
+function inheritMentions(base:RichNode,local:RichNode) {
+  if(["paragraph","heading"].includes(base.type)&&["paragraph","heading"].includes(local.type)) {
+    const source=chars(base),target=chars(local),mapping=new Map<number,number>();
+    let from=0,to=0;
+    for(const part of diffArrays(source,target,{comparator:(a,b)=>a.c===b.c&&!!a.hardBreak===!!b.hardBreak})) {
+      if(part.removed)from+=part.value.length;
+      else if(part.added)to+=part.value.length;
+      else {for(let i=0;i<part.value.length;i++)mapping.set(from+i,to+i);from+=part.value.length;to+=part.value.length;}
+    }
+    for(let start=0;start<source.length;start++) {
+      const mark=source[start].marks?.find(m=>m.type==="mention");if(!mark)continue;
+      let end=start+1;while(end<source.length&&source[end].marks?.some(m=>equal(m,mark)))end++;
+      const at=mapping.get(start);
+      if(at!==undefined&&Array.from({length:end-start},(_,i)=>mapping.get(start+i)===at+i).every(Boolean))
+        for(let i=0;i<end-start;i++)target[at+i]={...target[at+i],marks:[...(target[at+i].marks||[]).filter(m=>m.type!=="mention"),mark]};
+      start=end-1;
+    }
+    local.content=textContent(target);return;
+  }
+  if(base.content?.length===local.content?.length)for(let i=0;i<(base.content?.length||0);i++)inheritMentions(base.content![i],local.content![i]);
+  else if(stable(base).includes('"type":"mention"'))throw new Error("提及所在内容的结构发生变化，需要人工确认；原提及已保留");
+}
+
 type Edit = { start: number; end: number; value: Char[] };
 function edits(base: Char[], next: Char[]): Edit[] {
   const out: Edit[] = [];
@@ -519,16 +545,20 @@ function overlap(a: Edit, b: Edit): boolean {
   if (b.start === b.end) return b.start >= a.start && b.start < a.end;
   return Math.max(a.start, b.start) < Math.min(a.end, b.end);
 }
-// Markdown edits text; alignment remains in the structured document/sidecar.
+// Markdown edits text; paragraph alignment and diagram height remain structured.
 const withoutAlignment = (attrs: RichNode["attrs"]) => {
   if (!attrs) return attrs;
-  const { textAlign, ...rest } = attrs;
+  const { textAlign,firstLineIndent,canvasHeight, ...rest } = attrs;
   return rest;
 };
 function inheritAlignment(base: RichNode, local: RichNode) {
   if (base.type !== local.type) return;
   if (base.attrs?.textAlign)
     local.attrs = { ...local.attrs, textAlign: base.attrs.textAlign };
+  if(base.type==="paragraph"&&base.attrs?.firstLineIndent===2)
+    local.attrs={...local.attrs,firstLineIndent:2};
+  if(base.type==="codeBlock"&&base.attrs?.canvasHeight!==undefined)
+    local.attrs={...local.attrs,canvasHeight:base.attrs.canvasHeight};
   if (base.content?.length === local.content?.length)
     for (let i = 0; i < (base.content?.length || 0); i++)
       inheritAlignment(base.content![i], local.content![i]);
@@ -645,6 +675,7 @@ export function mergeMarkdown(
       l = parseStandard(section);
       inheritAlignment(b, l);
       inheritInlineStyles(b, l);
+      inheritMentions(b,l);
     } catch (e) {
       conflicts.push({
         blockId: id,

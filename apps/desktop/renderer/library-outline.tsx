@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { Icon } from "./icons";
 type Entry = {key:string;kind:"folder"|"note";id:string;parent_id:string|null};
 type Catalog = {revision:string;items:Entry[]};
-const mime = "application/x-anote-item";
+const mime = "application/x-simple-note-item";
 export function LibraryOutline({catalog,folders,notes,storageKey,canOrganize,canCreate,showAuthors=false,noteRow,onFolder,onMove}: {
   catalog:Catalog;folders:any[];notes:any[];storageKey:string;canOrganize:boolean;canCreate:boolean;
   showAuthors?:boolean;

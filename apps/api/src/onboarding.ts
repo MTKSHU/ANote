@@ -9,6 +9,8 @@ import { assetFor, localAssetPath } from "./assets.js";
 import type { User } from "./auth.js";
 import { platformConfig } from "./platform.js";
 import { MCP_GUIDE_KEY, MCP_GUIDE_TITLE, tutorialSource } from "./onboarding-mcp-guide.js";
+import {prepareHistoryState,writeHistoryVersion} from "./history-state-store.js";
+import {initializeDocumentEncoding} from './document-state-rollout.js';
 
 const templateTitle = "ANote 功能与使用示例";
 function contentHash(note: any) {
@@ -138,15 +140,16 @@ async function ensureFeatureGuide(userId: string, entry: any, updateExisting: bo
     // first; the whole guide, asset records, history and marker commit atomically.
     if (!current) {
       const empty=canonical({type:"doc",content:[{type:"paragraph",attrs:{blockId:randomUUID()}}]}),ydoc=prosemirrorJSONToYDoc(schema,empty,"default");
-      try {await sql.query("INSERT INTO documents(id,space_id,title,tags,created_by,snapshot,ystate,visibility) VALUES($1,$2,$3,$4,$5,$6,$7,'private')", [docId,space.id,source.title,source.tags,userId,empty,Buffer.from(Y.encodeStateAsUpdate(ydoc))]);} finally {ydoc.destroy();}
+      try {const encoding=await initializeDocumentEncoding(ydoc,sql);await sql.query("INSERT INTO documents(id,space_id,title,tags,created_by,snapshot,ystate,visibility,state_encoding) VALUES($1,$2,$3,$4,$5,$6,$7,'private',$8)", [docId,space.id,source.title,source.tags,userId,empty,Buffer.from(Y.encodeStateAsUpdate(ydoc)),encoding]);} finally {ydoc.destroy();}
     }
     const target={userId,space:space.id,docId,assetMap:structuredClone(own.asset_map)};
     const copied=await copyContent(sql,source,target),document=guideDocument(copied.value,current);
     try {
+      if(!current)await initializeDocumentEncoding(document,sql);
       const value=initProseMirrorDoc(document.getXmlFragment("default"),schema).doc.toJSON() as RichDoc,state=Buffer.from(Y.encodeStateAsUpdate(document));
       await sql.query("UPDATE documents SET title=$2,tags=$3,snapshot=$4,ystate=$5,revision=revision+CASE WHEN $6 THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1", [docId,source.title,source.tags,value,state,!!current]);
       for (const row of copied.assets) await sql.query("INSERT INTO document_assets(doc_id,asset_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [docId,row.id]);
-      await sql.query("INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,source,label) VALUES($1,$2,$3,$4,$5,'onboarding',$6)", [randomUUID(),docId,value,state,digest(stable(value)),current?"入门示例更新":"入门示例"]);
+      await writeHistoryVersion(sql,{id:randomUUID(),docId,snapshot:value,state:await prepareHistoryState(state),hash:digest(stable(value)),source:'onboarding',label:current?"入门示例更新":"入门示例"});
       await sql.query("UPDATE user_onboarding SET doc_id=$2,guide_created=true,source_hash=$3,installed_hash=$4,asset_map=$5,updated_at=now() WHERE user_id=$1", [userId,docId,hash,contentHash({title:source.title,tags:source.tags,snapshot:value}),target.assetMap]);
       await sql.query("INSERT INTO audit_events(actor,action,target,detail) VALUES(NULL,$1,$2,$3)", [current?"onboarding.update":"onboarding.create",docId,{user_id:userId}]);
       return current?"updated":"created";
@@ -182,16 +185,17 @@ async function ensureMcpGuide(userId: string, updateExisting = false) {
     const docId=current?.id || randomUUID();
     if (!current) {
       const empty=canonical({type:"doc",content:[{type:"paragraph",attrs:{blockId:randomUUID()}}]}),shell=prosemirrorJSONToYDoc(schema,empty,"default");
-      try {await sql.query("INSERT INTO documents(id,space_id,title,tags,created_by,snapshot,ystate,visibility) VALUES($1,$2,$3,$4,$5,$6,$7,'private')", [docId,space.id,source.title,source.tags,userId,empty,Buffer.from(Y.encodeStateAsUpdate(shell))]);} finally {shell.destroy();}
+      try {const encoding=await initializeDocumentEncoding(shell,sql);await sql.query("INSERT INTO documents(id,space_id,title,tags,created_by,snapshot,ystate,visibility,state_encoding) VALUES($1,$2,$3,$4,$5,$6,$7,'private',$8)", [docId,space.id,source.title,source.tags,userId,empty,Buffer.from(Y.encodeStateAsUpdate(shell)),encoding]);} finally {shell.destroy();}
     }
     const target={userId,space:space.id,docId,assetMap:structuredClone(own.asset_map)};
     const copied=await copyContent(sql,adminSource,target);
     const document=guideDocument(copied.value,current);
     try {
+      if(!current)await initializeDocumentEncoding(document,sql);
       const value=initProseMirrorDoc(document.getXmlFragment("default"),schema).doc.toJSON() as RichDoc,state=Buffer.from(Y.encodeStateAsUpdate(document));
       await sql.query("UPDATE documents SET title=$2,tags=$3,snapshot=$4,ystate=$5,revision=revision+CASE WHEN $6 THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1", [docId,source.title,source.tags,value,state,!!current]);
       for (const asset of copied.assets) await sql.query("INSERT INTO document_assets(doc_id,asset_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [docId,asset.id]);
-      await sql.query("INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,source,label) VALUES($1,$2,$3,$4,$5,'onboarding',$6)", [randomUUID(),docId,value,state,digest(stable(value)),current?"MCP 连接指南更新":"MCP 连接指南"]);
+      await writeHistoryVersion(sql,{id:randomUUID(),docId,snapshot:value,state:await prepareHistoryState(state),hash:digest(stable(value)),source:'onboarding',label:current?"MCP 连接指南更新":"MCP 连接指南"});
       await sql.query("UPDATE user_onboarding_guides SET doc_id=$3,guide_created=true,source_hash=$4,installed_hash=$5,asset_map=$6,updated_at=now() WHERE user_id=$1 AND guide_key=$2", [userId,MCP_GUIDE_KEY,docId,hash,contentHash({...source,snapshot:value}),target.assetMap]);
       await sql.query("INSERT INTO audit_events(actor,action,target,detail) VALUES(NULL,$1,$2,$3)", [current?"onboarding.update":"onboarding.create",docId,{user_id:userId,guide_key:MCP_GUIDE_KEY}]);
       return current?"updated":"created";

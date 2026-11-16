@@ -1,9 +1,10 @@
 import { t as translateUI } from "@anote/i18n";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NodeViewWrapper, NodeViewContent, type NodeViewProps } from "@tiptap/react";
 import { newId } from "@anote/document-model/id";
 import { BlockControls } from "./block-controls.js";
 import { useEditorEditable } from "./editable-state.js";
+import {useCanvasHeight,CanvasHeightHandle} from "./canvas-height.js";
 
 type Item = { id: string; parentId: string | null; x: number; y: number; text: string };
 type View = { x: number; y: number; zoom: number };
@@ -15,23 +16,29 @@ function ViewIcon({ kind }: { kind: "fit" | "fullscreen" | "exit" }) {
   </svg>;
 }
 
-export function MindMapView({ node, editor, getPos, selected: blockSelected }: NodeViewProps) {
+export function MindMapView({ node, editor, getPos,updateAttributes, selected: blockSelected }: NodeViewProps) {
   const editable = useEditorEditable(editor), items: Item[] = [];
+  const height=useCanvasHeight(node.attrs.canvasHeight,canvasHeight=>{if(editor.isEditable)updateAttributes({canvasHeight});});
   node.forEach(item => items.push({ ...(item.attrs as any), x: Number(item.attrs.x) || 0, y: Number(item.attrs.y) || 0, text: item.textContent }));
   const [selected, setSelected] = useState<string | null>(null), [editing, setEditing] = useState<string | null>(null),
     [draft, setDraft] = useState(""), [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null),
-    [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 }), [fullscreen, setFullscreen] = useState(false), [notice, setNotice] = useState("");
+    [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 }), [fullscreen, setFullscreen] = useState(false), [notice, setNotice] = useState(""),[heights,setHeights]=useState<Record<string,number>>({});
   const shell = useRef<HTMLDivElement>(null), viewport = useRef<HTMLDivElement>(null), input = useRef<HTMLInputElement>(null),
-    gesture = useRef<Gesture | null>(null), composing = useRef(false), pendingFocus = useRef<string|null>(null), selectedRef = useRef(selected), itemsRef = useRef(items), viewRef = useRef(view);
+    gesture = useRef<Gesture | null>(null), composing = useRef(false), pendingFocus = useRef<string|null>(null), selectedRef = useRef(selected), itemsRef = useRef(items), viewRef = useRef(view),
+    measuring=useRef<CanvasRenderingContext2D|null>(null),sizes=useRef<Record<string,{width:number;height:number}>>({});
   itemsRef.current = items; viewRef.current = view; selectedRef.current = selected;
+  if(!measuring.current)measuring.current=document.createElement("canvas").getContext("2d");
+  if(measuring.current)measuring.current.font="13px "+(viewport.current?getComputedStyle(viewport.current).fontFamily:"sans-serif");
+  sizes.current=Object.fromEntries(items.map(item=>{const longest=item.text.split("\n").reduce((width,line)=>Math.max(width,measuring.current?.measureText(line).width||0),0),width=Math.max(160,Math.min(320,Math.ceil(longest)+28));return [item.id,{width,height:heights[item.id]||48}];}));
+  const sizeOf=(item:Item)=>sizes.current[item.id]||{width:160,height:48};
   const active = items.find(item => item.id === selected) || items[0];
   function choose(id: string) { selectedRef.current = id; setSelected(id); }
   function moveView(next: View) { viewRef.current = next; setView(next); }
   function fit() {
     const rect = viewport.current?.getBoundingClientRect(), nodes = itemsRef.current;
     if (!rect || !nodes.length) return;
-    const left = Math.min(...nodes.map(item => item.x - 80)), right = Math.max(...nodes.map(item => item.x + 80)),
-      top = Math.min(...nodes.map(item => item.y - 24)), bottom = Math.max(...nodes.map(item => item.y + 24)),
+    const left = Math.min(...nodes.map(item => item.x - sizeOf(item).width/2)), right = Math.max(...nodes.map(item => item.x + sizeOf(item).width/2)),
+      top = Math.min(...nodes.map(item => item.y - sizeOf(item).height/2)), bottom = Math.max(...nodes.map(item => item.y + sizeOf(item).height/2)),
       zoom = clamp(Math.min(1, (rect.width - 64) / (right - left), (rect.height - 64) / (bottom - top)), .15, 4);
     moveView({ zoom, x: rect.width / 2 - (left + right) / 2 * zoom, y: rect.height / 2 - (top + bottom) / 2 * zoom });
   }
@@ -72,6 +79,11 @@ export function MindMapView({ node, editor, getPos, selected: blockSelected }: N
     document.addEventListener("keydown",escape,true);
     return () => { observer.disconnect(); element.removeEventListener("wheel", wheel); document.removeEventListener("fullscreenchange", changed); document.removeEventListener("keydown",escape,true); };
   }, []);
+  useLayoutEffect(()=>{
+    const labels=Array.from(shell.current!.querySelectorAll<HTMLElement>('.mind-map-node-label'));
+    const measure=()=>setHeights(previous=>{const next={...previous};let changed=false;for(const label of labels){const id=label.closest<HTMLElement>('[data-node-id]')!.dataset.nodeId!,height=Math.max(48,label.scrollHeight+18);if(next[id]!==height){next[id]=height;changed=true;}}return changed?next:previous;});
+    measure();const observer=new ResizeObserver(measure);for(const label of labels)observer.observe(label);return()=>observer.disconnect();
+  },[node,editing]);
   useEffect(() => {
     if(editing && pendingFocus.current===editing && input.current?.closest('[data-node-id]')?.getAttribute('data-node-id')===editing){input.current.focus({preventScroll:true});input.current.select();pendingFocus.current=null;}
   }, [editing,node]);
@@ -91,7 +103,7 @@ export function MindMapView({ node, editor, getPos, selected: blockSelected }: N
     const tr = editor.state.tr;
     if (attributes) tr.setNodeMarkup(target.pos, undefined, { ...target.item.attrs, ...attributes });
     if (text !== undefined && text !== target.item.textContent)
-      tr.replaceWith(target.pos + 1, target.pos + 1 + target.item.content.size, text ? editor.schema.text(text.slice(0, 240)) : []);
+      tr.replaceWith(target.pos + 1, target.pos + 1 + target.item.content.size, text ? editor.schema.text(text) : []);
     if (tr.docChanged) editor.view.dispatch(tr);
   }
   function edit(item: Item) { if (!editor.isEditable) return; composing.current = false; pendingFocus.current=item.id; choose(item.id); setDraft(item.text); setEditing(item.id); reveal(item); }
@@ -106,9 +118,9 @@ export function MindMapView({ node, editor, getPos, selected: blockSelected }: N
     if (!current || !editor.isEditable || nodes.length >= 300 || typeof pos !== "number") return;
     const parentId = sibling ? current.parentId : current.id; if (!parentId) return;
     const parent = nodes.find(item => item.id === parentId) || current,
-      siblings = nodes.filter(item => item.parentId === parentId), x = parent.x + 240;
-    let y = siblings.length ? Math.max(...siblings.map(item => item.y)) + 80 : parent.y;
-    while (nodes.some(item => Math.abs(item.x - x) < 180 && Math.abs(item.y - y) < 60)) y += 80;
+      siblings = nodes.filter(item => item.parentId === parentId), x = parent.x + Math.max(240,sizeOf(parent).width/2+160);
+    let y = siblings.length ? Math.max(...siblings.map(item => item.y+sizeOf(item).height/2)) + 56 : parent.y;
+    while (nodes.some(item => Math.abs(item.x - x) < sizeOf(item).width/2+100 && Math.abs(item.y - y) < sizeOf(item).height/2+36)) y += 80;
     const item = { id: newId(), parentId, x, y, text: translateUI("新分支") }, currentNode = editor.state.doc.nodeAt(pos);
     if (currentNode?.type.name !== "mindMap") return;
     editor.view.dispatch(editor.state.tr.insert(pos + currentNode.nodeSize - 1, editor.schema.nodes.mindMapItem.create(
@@ -161,7 +173,7 @@ export function MindMapView({ node, editor, getPos, selected: blockSelected }: N
         <small>{editable ? translateUI("双击或空格编辑 · Tab 添加子节点 · Enter 添加同级 · 拖动节点调整位置 · 滚轮缩放，空白处拖动") : translateUI("滚轮缩放 · 空白处拖动")}</small>
         {notice && <small role="status">{notice}</small>}
       </div>
-      <div ref={viewport} className="mind-map-viewport" tabIndex={0} aria-label={translateUI("思维导图画布")} data-zoom={view.zoom} data-pan-x={view.x} data-pan-y={view.y}
+      <div ref={viewport} style={{height:height.height}} className="mind-map-viewport" tabIndex={0} aria-label={translateUI("思维导图画布")} data-zoom={view.zoom} data-pan-x={view.x} data-pan-y={view.y}
         onMouseDown={event => { if (!(event.target as Element).closest("input")) event.preventDefault(); }}
         onPointerDown={event => {
           if (event.button !== 0 || (event.target as Element).closest(".mind-map-node")) return;
@@ -175,13 +187,13 @@ export function MindMapView({ node, editor, getPos, selected: blockSelected }: N
             <g className="mind-map-edges" aria-hidden="true">{items.map(item => {
               const parent = items.find(p => p.id === item.parentId); if (!parent) return null;
               const p = position(parent), c = position(item), direction = c.x >= p.x ? 1 : -1,
-                start = p.x + 80 * direction, end = c.x - 80 * direction, bend = Math.max(42, Math.abs(end - start) * .55);
+                start = p.x + sizeOf(parent).width/2 * direction, end = c.x - sizeOf(item).width/2 * direction, bend = Math.max(42, Math.abs(end - start) * .55);
               return <path key={item.id} fill="none" stroke="var(--accent, #365fc4)" strokeWidth="2" vectorEffect="non-scaling-stroke" d={`M ${start} ${p.y} C ${start + bend * direction} ${p.y}, ${end - bend * direction} ${c.y}, ${end} ${c.y}`} />;
             })}</g>
             {items.map(item => {
-              const p = position(item);
-              return <foreignObject key={item.id} x={p.x - 80} y={p.y - 24} width="160" height="48">
-                <div className={"mind-map-node" + (active?.id === item.id ? " active" : "") + (editing === item.id ? " is-editing" : "")} data-node-id={item.id} role="group" aria-label={translateUI("节点 {0}", [(item.text || translateUI("空白"))])} tabIndex={0}
+              const p = position(item),size=sizeOf(item);
+              return <foreignObject key={item.id} x={p.x - size.width/2} y={p.y - size.height/2} width={size.width} height={size.height}>
+                <div className={"mind-map-node" + (active?.id === item.id ? " active" : "") + (editing === item.id ? " is-editing" : "")} style={{height:size.height}} data-node-id={item.id} role="group" aria-label={translateUI("节点 {0}", [(item.text || translateUI("空白"))])} tabIndex={0}
                   onPointerDown={event => {
                     if (event.button !== 0 || (event.target as Element).closest("input")) return;
                     event.preventDefault(); event.stopPropagation(); choose(item.id); event.currentTarget.focus({ preventScroll: true });
@@ -198,7 +210,7 @@ export function MindMapView({ node, editor, getPos, selected: blockSelected }: N
                       else if (event.key === "Tab") add(); else if (event.key === "Enter") add(!!item.parentId); else remove();
                     }
                   }}>
-                  {editing === item.id && editable ? <input ref={input} aria-label={translateUI("节点文字 {0}", [item.id])} value={draft} maxLength={240}
+                  {editing === item.id && editable ? <input ref={input} aria-label={translateUI("节点文字 {0}", [item.id])} value={draft}
                     onChange={event => { setDraft(event.target.value); if (!composing.current) change(item.id, undefined, event.target.value); }}
                     onCompositionStart={() => { composing.current = true; }} onCompositionEnd={event => { composing.current = false; change(item.id, undefined, event.currentTarget.value); }}
                     onBlur={event => finish(item.id, event.target.value)}
@@ -214,6 +226,7 @@ export function MindMapView({ node, editor, getPos, selected: blockSelected }: N
           </g>
         </svg>
       </div>
+      {!fullscreen&&<CanvasHeightHandle label={translateUI("调整思维导图画布高度")} height={height.height} handle={height.handle}/>}
     </div>
   </NodeViewWrapper>;
 }

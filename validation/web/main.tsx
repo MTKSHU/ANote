@@ -66,9 +66,11 @@ function Workspace({ session, docId }: { session: Session; docId: string }) {
   return (
     <div className="app">
       <header>
-        <div className="brand-mark">A</div>
+        <div className="brand-mark">帧</div>
         <div>
-          <strong>ANote</strong>
+          <strong>
+            帧集 <span>ANote</span>
+          </strong>
           <p>协同编辑与双向同步 · 验证工作台</p>
         </div>
         <div className="header-right">
@@ -538,8 +540,8 @@ function App() {
   return (
     <div className="login-shell">
       <div className="login-card">
-        <div className="brand-mark">A</div>
-        <p className="eyebrow">ANote VALIDATION</p>
+        <div className="brand-mark">帧</div>
+        <p className="eyebrow">ANOTE VALIDATION</p>
         <h1>一起验证，放心协作。</h1>
         <p>这是隔离的技术验证空间，使用预设身份和本地验证口令。</p>
         {!session ? (

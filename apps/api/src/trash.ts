@@ -165,6 +165,7 @@ export class TrashController {
           `UPDATE document_share_links SET revoked_at=now() WHERE doc_id IN (SELECT id FROM documents WHERE space_id IN (${scope})) AND revoked_at IS NULL`,
           [id],
         );
+        await client.query(`UPDATE library_share_links SET revoked_at=now() WHERE space_id IN (${scope}) AND revoked_at IS NULL`,[id]);
         if (team)
           await client.query(
             "UPDATE team_invites SET revoked_at=now() WHERE team_id=$1 AND revoked_at IS NULL AND accepted_by IS NULL",

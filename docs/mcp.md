@@ -45,3 +45,13 @@ MCP 授权凭据与平台登录密码、OIDC Client Secret 相互独立。客户
 `import_chatgpt_file` 依赖客户端提供的原生文件参数。不具备此能力的客户端可以使用分块上传。暂存内容在引用提交前保持私有，读取评论和附件也始终检查当前用户权限。
 
 实现位于 [mcp.ts](../apps/api/src/mcp.ts)，接口回归见 [MCP 测试](../apps/web/tests/mcp.spec.ts)。
+
+## 0.5.10 令牌、本地模式与格式升级
+
+当前编辑格式是 **schema 9**，工具集版本 **1.1.10**。升级不会撤销仍有效的 OAuth 或个人令牌。AI 客户端应刷新 tools/list，读取 `get_editor_rules`／`anote://editor/rules`，重新读取笔记，再生成并确认新的预览。旧 schema 的写入被拒绝，不能自动重放旧预览。
+
+服务器“设置 → AI工具链”支持为 SSH 或无浏览器客户端创建个人令牌。令牌只显示一次，按需授予读取／编辑权限；服务器只保存其哈希，可设置期限和撤销。它只用于 MCP，不能用于普通网页登录或绕过笔记 ACL。配置通过 `ANOTE_MCP_TOKEN` 等环境变量引用令牌，HTTP 请求使用 `Authorization: Bearer TOKEN`，不要把真实令牌提交到配置仓库。
+
+桌面本地模式的 AI工具链提供独立的本机 MCP 接口，默认地址 `http://127.0.0.1:3112/mcp`，令牌与服务器认证独立。配置使用 `ANOTE_LOCAL_MCP_TOKEN`。本机 AI 可检索、读取、预览并确认修改当前个人目录的笔记，读取已有附件；新增附件先在客户端中添加。切换到服务器工作空间会停止该本机服务，远程连接可通过 SSH 端口转发。
+
+媒体节点可通过 `mediaResource.attrs.projection=flat|equirectangular` 区分平面与 360° 等距柱状展示，具体节点属性以当前编辑规则为准。新格式还支持 `paragraph.firstLineIndent=2` 与 `tableCell/tableHeader.verticalAlign=top|middle|bottom`；清除缩进时省略该属性。知识库归档后 MCP 写入同样被禁止。

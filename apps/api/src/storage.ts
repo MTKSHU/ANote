@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 import type { Request, Response } from "express";
 import { fail } from "./errors.js";
+import { isSvgImagePrefix, SVG_MIME, SVG_HEADER_BYTES } from "@anote/document-model/svg";
 
 export const storageRoot = path.resolve(
   process.env.ASSET_ROOT || "/data/resources",
@@ -72,7 +73,7 @@ export async function describeFile(
   bytes: number,
 ) {
   const handle = await fs.open(file, "r");
-  const header = Buffer.alloc(Math.min(65536, bytes));
+  const header = Buffer.alloc(Math.min(SVG_HEADER_BYTES, bytes));
   try {
     await handle.read(header, 0, header.length, 0);
   } finally {
@@ -97,6 +98,9 @@ export async function describeFile(
   } else if (prefix.startsWith("RIFF") && prefix.slice(8, 12) === "WEBP") {
     kind = "image";
     mime = "image/webp";
+  } else if (isSvgImagePrefix(prefix)) {
+    kind = "image";
+    mime = SVG_MIME;
   } else if (prefix.slice(4, 8) === "ftyp") {
     kind = ext === ".m4a" ? "audio" : "video";
     mime = kind === "audio" ? "audio/mp4" : "video/mp4";
@@ -195,6 +199,18 @@ export async function describeFile(
     mime = "text/plain; charset=utf-8";
   }
   return { kind, mime, metadata };
+}
+
+// Older versions stored SVG as a generic attachment. Normalize the response
+// after authorization without rewriting asset records or a note's CRDT state.
+export async function normalizeSvgAsset<T extends {kind?: string; mime?: string; filename?: string; storage_key: string; bytes: number | string}>(row: T): Promise<T> {
+  if (row.mime === SVG_MIME) return {...row, kind: "image"};
+  if (row.kind !== "file" || !/\.svg$/i.test(row.filename || "")) return row;
+  try {
+    const value = await describeFile(storagePath("originals", row.storage_key), row.filename!, Number(row.bytes));
+    if (value.mime === SVG_MIME) return {...row, kind: "image", mime: SVG_MIME};
+  } catch { /* A missing original must not hide the rest of a resource list. */ }
+  return row;
 }
 export async function sendFile(
   req: Request,

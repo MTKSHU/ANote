@@ -2,7 +2,9 @@ import { t as translateUI } from "@anote/i18n";
 import React, { useState } from "react";
 import type { Editor } from "@tiptap/core";
 import { FONT_SIZES } from "@anote/document-model";
+import {yUndoPluginKey} from "@tiptap/y-tiptap";
 import { Icon } from "./icons";
+import {adjustTableColumns} from './table-widths';
 const colors = [
   [translateUI("默认黑"), "#242833"],
   [translateUI("灰色"), "#6b7280"],
@@ -26,10 +28,12 @@ const highlights = [
 export function SelectionToolbar({
   editor,
   onComment,
+  onNoteLink,
   preserveScroll = false,
 }: {
   editor: Editor;
   onComment?: () => void;
+  onNoteLink?:()=>void;
   preserveScroll?: boolean;
 }) {
   const [menu, setMenu] = useState(""),
@@ -172,6 +176,10 @@ export function SelectionToolbar({
         <Icon name={alignment} size={17} />
         <Icon name="down" size={10} />
       </button>
+      <button aria-label={translateUI("首行缩进")} title={translateUI("段落首行缩进")} {...expanded("indent")}
+        disabled={!editor.can().setFirstLineIndent(2)} onClick={() => toggle("indent")}>
+        <Icon name="first-line-indent" size={17}/><Icon name="down" size={10}/>
+      </button>
       <i />
       <button
         aria-label={translateUI("清除格式")}
@@ -187,6 +195,7 @@ export function SelectionToolbar({
       >
         <Icon name="clear-format" size={18} />
       </button>
+      {onNoteLink&&<button type="button" aria-label={translateUI("笔记链接")} title={translateUI("链接到其他笔记（Ctrl / ⌘ + K）")} onClick={onNoteLink}><Icon name="file" size={17}/></button>}
       {onComment && (
         <>
           <i />
@@ -218,6 +227,16 @@ export function SelectionToolbar({
           ))}
         </div>
       )}
+      {menu === "indent" && <div className="format-popover alignment-options" role="dialog" aria-label={translateUI("首行缩进设置")}>
+        <h4>{translateUI("首行缩进")}</h4>
+        {([2, null] as const).map(value => <button key={value ?? "none"}
+          aria-pressed={(editor.getAttributes("paragraph").firstLineIndent === 2) === (value === 2)}
+          onClick={() => {
+            const undo = yUndoPluginKey.getState(editor.state)?.undoManager; undo?.stopCapturing();
+            editor.chain().focus(null, {scrollIntoView: !preserveScroll}).setFirstLineIndent(value).run();
+            undo?.stopCapturing(); setMenu("");
+          }}>{value === 2 ? translateUI("首行缩进 2 字符") : translateUI("取消首行缩进")}</button>)}
+      </div>}
       {menu === "align" && (
         <div
           className="format-popover alignment-options"
@@ -335,6 +354,21 @@ type TableCommand =
   | "mergeCells"
   | "splitCell";
 export function TableToolbar({ editor }: { editor: Editor }) {
+  const [colorOpen,setColorOpen]=useState(false),[verticalOpen,setVerticalOpen]=useState(false),[custom,setCustom]=useState("#dbeafe");
+  const background=editor.getAttributes(editor.isActive("tableHeader")?"tableHeader":"tableCell").background;
+  const vertical=editor.getAttributes(editor.isActive("tableHeader")?"tableHeader":"tableCell").verticalAlign||"top";
+  function align(value:string){
+    const undo=yUndoPluginKey.getState(editor.state)?.undoManager;undo?.stopCapturing();
+    editor.chain().focus(null,{scrollIntoView:false}).setCellAttribute("verticalAlign",value).run();
+    undo?.stopCapturing();setVerticalOpen(false);
+  }
+  function fill(value:string|null){
+    const undo=yUndoPluginKey.getState(editor.state)?.undoManager;
+    undo?.stopCapturing();
+    editor.chain().focus(null,{scrollIntoView:false}).setCellAttribute("background",value).run();
+    undo?.stopCapturing();
+    setColorOpen(false);
+  }
   const commands: Array<{
     id: TableCommand;
     icon: string;
@@ -356,7 +390,9 @@ export function TableToolbar({ editor }: { editor: Editor }) {
     { id: "splitCell", icon: "cells-split", label: translateUI("拆分单元格") },
   ];
   return (
-    <div className="table-icon-toolbar" role="toolbar" aria-label={translateUI("表格操作")}>
+    <div className="table-icon-toolbar" role="toolbar" aria-label={translateUI("表格操作")} onKeyDownCapture={event=>{
+      if(event.key==="Escape"&&(colorOpen||verticalOpen)){event.preventDefault();event.stopPropagation();setColorOpen(false);setVerticalOpen(false);editor.commands.focus(null,{scrollIntoView:false});}
+    }}>
       {commands.map((c, i) => (
         <React.Fragment key={c.id}>
           {[3, 6].includes(i) && <i />}
@@ -377,6 +413,29 @@ export function TableToolbar({ editor }: { editor: Editor }) {
           </button>
         </React.Fragment>
       ))}
+      <i />
+      <button aria-label={translateUI("按内容调整列宽")} title={translateUI("按整张表格的内容调整列宽，长文字自动换行")} disabled={!editor.isEditable} onClick={()=>adjustTableColumns(editor,'content')}><Icon name="columns-fit" size={19}/></button>
+      <button aria-label={translateUI("平均分配列宽")} title={translateUI("将整张表格的列宽平均分配到可用页面宽度")} disabled={!editor.isEditable} onClick={()=>adjustTableColumns(editor,'equal')}><Icon name="columns-equal" size={19}/></button>
+      <i />
+      <button aria-label={translateUI("单元格垂直对齐")} title={translateUI("单元格垂直对齐")} aria-expanded={verticalOpen} aria-haspopup="dialog" disabled={!editor.isEditable} onClick={()=>{setColorOpen(false);setVerticalOpen(value=>!value);}}>
+        <Icon name={"vertical-"+vertical} size={19}/><Icon name="down" size={10}/>
+      </button>
+      {verticalOpen&&<div className="format-popover alignment-options" role="dialog" aria-label={translateUI("单元格垂直对齐设置")}><h4>{translateUI("垂直对齐")}</h4>
+        {[["top",translateUI("顶部对齐")],["middle",translateUI("垂直居中")],["bottom",translateUI("底部对齐")]].map(([value,label])=><button key={value} aria-pressed={vertical===value} onClick={()=>align(value)}><Icon name={"vertical-"+value} size={17}/>{label}</button>)}
+      </div>}
+      <button aria-label={translateUI("单元格底纹")} title={translateUI("设置所选单元格的底纹颜色")} aria-expanded={colorOpen} aria-haspopup="dialog" disabled={!editor.isEditable} onClick={()=>{setVerticalOpen(false);setCustom(/^#[0-9a-f]{6}$/i.test(background||"")?background:"#dbeafe");setColorOpen(value=>!value);}}>
+        <span className="table-cell-color-glyph" style={{borderColor:background||"var(--line)"}}><Icon name="highlighter" size={18}/></span><Icon name="down" size={10}/>
+      </button>
+      {colorOpen&&<div className="format-popover color-options table-cell-color-options" role="dialog" aria-label={translateUI("单元格底纹设置")}>
+        <h4>{translateUI("单元格底纹")}</h4>
+        <button className="reset-inline-style" onClick={()=>fill(null)}>{translateUI("无底纹颜色")}</button>
+        <div className="color-swatches">{highlights.map(([label,value])=><button key={value} className="color-swatch" aria-label={translateUI("底纹色 {0}", [label])} title={label+" "+value} aria-pressed={background===value} style={{backgroundColor:value}} onClick={()=>fill(value)}>{background===value&&<Icon name="check" size={13}/>}</button>)}</div>
+        <div className="custom-color-row">
+          <input type="color" aria-label={translateUI("自定义底纹颜色")} value={/^#[0-9a-f]{6}$/i.test(custom)?custom:"#dbeafe"} onChange={event=>setCustom(event.target.value)}/>
+          <input className="custom-color-text" aria-label={translateUI("底纹颜色值")} value={custom} maxLength={7} onChange={event=>setCustom(event.target.value)}/>
+          <button disabled={!/^#[0-9a-f]{6}$/i.test(custom)} onClick={()=>fill(custom.toLowerCase())}>{translateUI("应用底纹")}</button>
+        </div>
+      </div>}
     </div>
   );
 }

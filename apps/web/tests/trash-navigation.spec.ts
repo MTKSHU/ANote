@@ -5,7 +5,7 @@ import {
   type APIRequestContext,
 } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { api, admin, login } from "./helpers";
+import { api, admin, login , openWorkspaceSettings} from "./helpers";
 import MarkdownIt from "markdown-it";
 const password = "Recycle-navigation-test-123!";
 async function person(request: APIRequestContext, root: any) {
@@ -577,8 +577,8 @@ test("团队名称与固定知识库导航、编辑返回列表，文内目录�
   await page.getByRole("button", { name: "显示文内目录", exact: true }).click();
   const outline = page.getByRole("complementary", { name: "文内目录" });
   await expect(outline).toContainText("总览");
-  const collapse = sidebar
-    .locator(".academic-sidebar-heading")
+  const collapse = page
+    .getByRole("group", { name: "导航与品牌", exact: true })
     .getByRole("button", { name: "收起侧边栏", exact: true });
   await expect(collapse).toBeVisible();
   await expect(
@@ -690,7 +690,7 @@ test("笔记、知识库、团队的删除入口、确认和回收站恢复贯�
     .getByRole("button", { name: /我的团队/ })
     .click();
   await page.locator(".team-card").filter({ hasText: "待删除团队" }).click();
-  await page.locator(".team-hub .management-tabs").getByRole("button", { name: "设置", exact: true }).click();
+  await openWorkspaceSettings(page);
   await page.getByRole("button", { name: "删除团队", exact: true }).click();
   await dialog.getByRole("button", { name: "移入回收站" }).click();
   await expect(dialog).toHaveCount(0);

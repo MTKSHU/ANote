@@ -1,23 +1,46 @@
 import { t as translateUI, getLocale as uiLocale } from "@anote/i18n";
+import { LanguageSelect } from "./language";
 import React, { useEffect, useRef, useState } from "react";
 import { Document } from "./document";
+import { setPageTitle } from "./page-title";
 import { request, type NativeState } from "./native";
 import { Icon } from "./icons";
+import {BrandLogo} from "./brand";
+import {LibraryArchiveDialog,type ArchiveLibrary} from "./library-archive";
 import { LibraryPermissionsDialog } from "./members";
 import { AccountIdentity } from "./team";
 import { PlatformAdmin, ProfileSettings, NicknameSettings } from "./platform";
-import { TeamsHub, TeamInvitation } from "./teams";
+import { TeamsHub, TeamHome, TeamInvitation } from "./teams";
 import { LibraryOutline } from "./library-outline";
 import { LibraryNoteList } from "./library-note-list";
 import { McpConnections } from "./mcp-connections";
-import { LanguageSelect } from "./language";
+import {LocalMcpSettings} from './local-mcp-settings';
+import { Wishes } from "./wishes";
 import { Clients } from "../../web/src/clients";
+import { OfflineControls } from "./offline-controls";
 import { useTheme, AppearanceButton } from "./theme";
 import { useDialog, DialogClose } from "./dialog";
-import { sidebarLibraries } from "./sidebar-libraries";
+import { sidebarLibraries,sidebarLibraryNotes } from "./sidebar-libraries";
 import { useSidebarVisibility } from "./sidebar-visibility";
 import {NoteLocationPicker} from "./note-move";
+import {readWorkspaceLocation, workspaceAddress,type WorkspaceLocation} from "./workspace-location";
+import {MyShares} from "./my-shares";
+import {LibrarySharing} from "./library-sharing";
+import {SidebarGroup} from "./sidebar-group";
+import {useSocialBadges,SocialPage} from "./social";
+import {WorkspaceLink} from "./workspace-link";
+import {useDocumentSessionScope} from './document-session';
+import {useWorkspaceScope} from "./workspace-scope";
+import {WorkspaceAccountMenu} from "./workspace-account-menu";
+import {connectForClientUpdate,useClientUpdateNotification} from "./client-updates";
+import "./workspace-account-bar.css";
+import {ClientStorage} from "./client-storage";
+import {useMobileWorkspace} from "./mobile-layout";
+import {MobilePanel} from "./mobile-panel";
 type Library = {
+  archived?: boolean;
+  archived_at?: string|null;
+  archive_revision?: string|number;
   id: string;
   created_by?: string;
   creator_name?: string;
@@ -55,6 +78,7 @@ type Note = {
   space_kind: string;
   folder_name: string;
   collaboration_role?: string;
+  team_id?: string | null;
 };
 type Dialog = {
   kind:
@@ -84,45 +108,52 @@ export function NotebookWorkspace({
   onLogout: () => void | Promise<void>;
   onReconnect?: () => void;
 }) {
+  const documentOwner=useDocumentSessionScope(state);
   const [profile, setProfile] = useState<{ id: string; name: string } | null>(null);
+  const [connectionWorkspace,setConnectionWorkspace]=useState(state.connectionWorkspace),[changingWorkspace,setChangingWorkspace]=useState(false);
+  useEffect(()=>setConnectionWorkspace(state.connectionWorkspace),[state.connectionWorkspace]);
   const user = { ...state.user!, ...(profile?.id === state.user!.id ? { name: profile.name } : {}) },
     native = state.desktop !== false;
   const personalLibraryLabel = translateUI("{0}的知识库", [user.name]);
-  const [sidebarCollapsed,setSidebarCollapsed] = useSidebarVisibility(state.serverURL,user.id);
+  const [initialLocation] = useState(() => readWorkspaceLocation(location.search, native ? state.lastDoc : null, state.personal));
+  const [desktopSidebarCollapsed,setDesktopSidebarCollapsed] = useSidebarVisibility(state.serverURL,user.id);
+  const {mobile,height:mobileHeight}=useMobileWorkspace();
+  const [mobileNavigation,setMobileNavigation]=useState(false),[mobileNotes,setMobileNotes]=useState(false),[newNoteEditing,setNewNoteEditing]=useState("");
+  const sidebarCollapsed=mobile||desktopSidebarCollapsed;
+  const navigationCollapsed=mobile?!mobileNavigation:sidebarCollapsed;
+  function setSidebarCollapsed(value:boolean){if(mobile)setMobileNavigation(!value);else setDesktopSidebarCollapsed(value);}
+  function closeMobilePanels(){setMobileNavigation(false);setMobileNotes(false);}
+  const [scope,setScope]=useWorkspaceScope(state.serverURL,user.id,initialLocation.scope||initialLocation.teamId,!!state.personal);
+  const scopeRef=useRef(scope);scopeRef.current=scope;
+  const localNotificationsOnly = native && (!!state.personal || !state.token);
+  const socialBadges=useSocialBadges(!!state.personal||state.offline||localNotificationsOnly);
+  const clientUpdate=useClientUpdateNotification(state.updates,native);
+  const unreadNotifications=(localNotificationsOnly?0:socialBadges.unread)+(clientUpdate&&!clientUpdate.read?1:0);
   useEffect(() => { setProfile(null); }, [state.serverURL, state.user!.id, state.user!.name]);
   const [libraries, setLibraries] = useState<Library[]>([]),
     [notes, setNotes] = useState<Note[]>([]),
     [sidebarActivity, setSidebarActivity] = useState<Note[]>([]),
     [folders, setFolders] = useState<Folder[]>([]),
     [catalog, setCatalog] = useState<{revision:string;items:any[]}>({revision:"0",items:[]}),
-    [page, setPage] = useState(
-      new URLSearchParams(location.search).has("team")
-        ? new URLSearchParams(location.search).get("view") === "libraries"
-          ? "team"
-          : "teams"
-        : "home",
-    ),
-    [teamId, setTeamId] = useState(
-      new URLSearchParams(location.search).get("team") || "",
-    ),
+    [page, setPage] = useState(initialLocation.page),
+    [teamId, setTeamId] = useState(initialLocation.teamId),
+    [teamTab, setTeamTab] = useState(initialLocation.teamTab),
     [teamHomeVisit, setTeamHomeVisit] = useState(0),
     [teams, setTeams] = useState<any[]>([]),
-    [siteName, setSiteName] = useState("ANote"),
-    [libraryId, setLibraryId] = useState(
-      new URLSearchParams(location.search).get("space") || "",
-    ),
-    [selected, setSelected] = useState<string | null>(
-      new URLSearchParams(location.search).get("doc") || state.lastDoc,
-    ),
-    [folder, setFolder] = useState<string | null>(null),
-    [homeTab, setHomeTab] = useState("recent"),
-    [query, setQuery] = useState(""),
+    [siteName, setSiteName] = useState(native ? translateUI("服务器笔记") : "ANote"),
+    [libraryId, setLibraryId] = useState(initialLocation.libraryId),
+    [selected, setSelected] = useState<string | null>(initialLocation.selected),
+    [folder, setFolder] = useState<string | null>(initialLocation.folder),
+    [homeTab, setHomeTab] = useState(initialLocation.homeTab),
+    [query, setQuery] = useState(initialLocation.query),
     [results, setResults] = useState<Note[] | null>(null),
-    [archived, setArchived] = useState(false),
+    [archived, setArchived] = useState(initialLocation.archived),
     [dialog, setDialog] = useState<Dialog | null>(null),
     [settings, setSettings] = useState(""),
     [permissionLibraryId,setPermissionLibraryId] = useState("");
   const [folderDeleteTarget,setFolderDeleteTarget] = useState<Folder|null>(null);
+  const [sharingLibrary,setSharingLibrary] = useState<string|null>(null);
+  const [shareKind,setShareKind] = useState(initialLocation.shareKind),[shareStatus,setShareStatus] = useState(initialLocation.shareStatus);
   const [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(true),
     [pinBusy, setPinBusy] = useState<Record<string, boolean>>({}),
@@ -135,7 +166,7 @@ export function NotebookWorkspace({
       title: string;
       kind: "documents" | "spaces" | "teams";
     } | null>(null);
-  const [trashTab, setTrashTab] = useState<"teams" | "spaces" | "documents">("documents");
+  const [trashTab, setTrashTab] = useState(initialLocation.trashTab);
   const trashGroups = [
     {kind: "teams" as const, label: translateUI("团队"), items: trashTeams},
     {kind: "spaces" as const, label: translateUI("知识库"), items: trashLibraries},
@@ -148,22 +179,39 @@ export function NotebookWorkspace({
       token: string;
     } | null>(null),
     [purgeName, setPurgeName] = useState("");
+  // Initial note metadata fills its context asynchronously; keep an already
+  // opened drawer visible while those details arrive. Navigation closes it.
+  useEffect(()=>{closeMobilePanels();},[mobile,selected,settings,dialog]);
+  useEffect(()=>{if(state.workspaceSwitching||state.storageMigrating||state.backupRestoring)closeMobilePanels();},[state.workspaceSwitching,state.storageMigrating,state.backupRestoring]);
   const navigation = useRef(0),
     loadSequence = useRef(0),
     initialNavigation = useRef<number | null>(0),
     selectedRef = useRef(selected),
     sidebarSnapshot = useRef({scope:"",revision:-1}),
-    folderSequence = useRef(0);
+    folderSequence = useRef(0),
+    folderContext = useRef("");
   selectedRef.current = selected;
+  const [libraryStatus,setLibraryStatus]=useState<"active"|"archived"|"all">("active");
+  const [archiveTarget,setArchiveTarget]=useState<ArchiveLibrary|null>(null);
+  useEffect(()=>{setArchiveTarget(null);setLibraryStatus("active");},[state.serverURL,user.id]);
+  const matchesLibraryStatus=(book:Library)=>libraryStatus==="all"||!!book.archived===(libraryStatus==="archived");
   const library = libraries.find((l) => l.id === libraryId),
     selectedTeam = teams.find((t) => t.id === teamId),
     activeNote = notes.find((n) => n.id === selected),
-    canOrganize = !!library && library.role === "admin" && !state.offline,
-    canCreateNotes = !!library && ["admin", "editor", "contributor"].includes(library.role) && !state.offline;
+    canOrganize = !!library && !library.archived && library.role === "admin" && !state.offline,
+    canCreateNotes = !!library && !library.archived && ["admin", "editor", "contributor"].includes(library.role) && (!state.offline || state.desktop===true && !!state.offlineStorage?.downloadedLibraryIds?.includes(library.id));
+  const scopeTeam=teams.find(team=>team.id===scope);
+  const scopeLibraries=libraries.filter(book=>book.kind==="personal"?scope==="personal":book.team_id===scope);
+  const writableLibraries=scopeLibraries.filter(book=>!book.archived&&["admin","editor","contributor"].includes(book.role)&&(!state.offline||state.desktop===true&&state.offlineStorage?.downloadedLibraryIds?.includes(book.id)));
+  const canCreateInScope=state.offline?writableLibraries.length>0:scope==="personal"||!!scopeTeam&&!scopeTeam.archived&&(writableLibraries.length>0||scopeTeam.role==="admin"||scopeTeam.members_can_create_libraries);
+  const bookScope=(book:Pick<Library,"kind"|"team_id">)=>book.kind==="team"?book.team_id||"personal":"personal";
+  function hrefFor(patch:Partial<WorkspaceLocation>={}) {
+    return workspaceAddress({page:"home",teamId:"",teamTab:"home",libraryId:"",selected:null,folder:null,homeTab:"recent",archived:false,query:"",trashTab:"documents",shareKind:"notes",shareStatus:"active",scope,...patch});
+  }
   function report(e: any) {
     setError(translateUI(e.message || translateUI("操作失败")));
   }
-  const libraryViewKey = `anote:library-view:${state.serverURL}:${user.id}`;
+  const libraryViewKey = `simple-notes:library-view:${state.serverURL}:${user.id}`;
   const [libraryView,setLibraryView] = useState<"cards"|"list">(() => {try{return localStorage.getItem(libraryViewKey) === "list" ? "list" : "cards";}catch{return "cards";}});
   useEffect(() => {try{setLibraryView(localStorage.getItem(libraryViewKey) === "list" ? "list" : "cards");}catch{setLibraryView("cards");}},[libraryViewKey]);
   function chooseLibraryView(view:"cards"|"list") {setLibraryView(view);try{localStorage.setItem(libraryViewKey,view);}catch{}}
@@ -174,12 +222,11 @@ export function NotebookWorkspace({
   const deleteDialog = useDialog(() => setDeleteTarget(null),{open:!!deleteTarget,disabled:busy});
   const purgeDialog = useDialog<HTMLFormElement>(() => setPurgeTarget(null),{open:!!purgeTarget,disabled:busy});
   const folderDeleteDialog = useDialog<HTMLFormElement>(() => setFolderDeleteTarget(null),{open:!!folderDeleteTarget,disabled:busy});
+  useEffect(() => {
+    const url = workspaceAddress({page,teamId,teamTab,libraryId,selected,folder,homeTab,archived,query,trashTab,shareKind,shareStatus,scope});
+    if (location.pathname + location.search !== url) history.replaceState(null, "", url);
+  }, [page,teamId,teamTab,libraryId,selected,folder,homeTab,archived,query,trashTab,shareKind,shareStatus,scope]);
   function address(note: string | null, space?: string) {
-    history.replaceState(
-      null,
-      "",
-      note ? "/?doc=" + note : space ? "/?space=" + space : "/",
-    );
     if (native) void window.anote.selectDocument(note,state.serverURL+"|"+user.id);
   }
   async function refresh() {
@@ -211,13 +258,14 @@ export function NotebookWorkspace({
       setTrashLibraries(trashedLibraries);
       setTrashTeams(trashedTeams);
       setTeams(teamValues);
+      if(scopeRef.current!=="personal"&&!teamValues.some((team:any)=>team.id===scopeRef.current)){setScope("personal");if(!selectedRef.current){setTeamId("");setPage("home");}}
       setSiteName(site.site_name);
-      if (!native) document.title = site.site_name;
+      setPageTitle(native ? "ANote" : site.site_name);
       setNotes([...active, ...archive]);
-      const scope = state.serverURL + "|" + user.id;
-      if (sidebarSnapshot.current.scope !== scope || !selectedRef.current || (sidebarSnapshot.current.revision !== navigation.current && revision === navigation.current)) {
+      const activityScope = state.serverURL + "|" + user.id;
+      if (sidebarSnapshot.current.scope !== activityScope || !selectedRef.current || (sidebarSnapshot.current.revision !== navigation.current && revision === navigation.current)) {
         setSidebarActivity(active);
-        sidebarSnapshot.current = {scope,revision:navigation.current};
+        sidebarSnapshot.current = {scope:activityScope,revision:navigation.current};
       }
       // A focus/metadata refresh may supersede the first request. The latest
       // response must still restore the initial note's library context.
@@ -237,6 +285,8 @@ export function NotebookWorkspace({
                 sequence === loadSequence.current
               ) {
                 setSelected(null);
+                setLibraryId("");
+                setPage("home");
                 address(null);
               }
               report(e);
@@ -249,11 +299,20 @@ export function NotebookWorkspace({
             return;
           if (note && books.some((b: any) => b.id === note.space_id)) {
             setLibraryId(note.space_id);
+            setScope(bookScope(books.find((b:any)=>b.id===note.space_id)!));
             setPage("library");
             setArchived(!!note.archived);
           }
-        } else if (libraryId && books.some((b: any) => b.id === libraryId))
-          setPage("library");
+        } else if (libraryId && page === "library") {
+          if (books.some((b: any) => b.id === libraryId)) {setPage("library");setScope(bookScope(books.find((b:any)=>b.id===libraryId)!));}
+          else {setLibraryId("");setPage("personal");setFolder(null);}
+        } else if (teamId && ["teams","team"].includes(page) && !teamValues.some((t:any) => t.id === teamId)) {
+          setTeamId("");setTeamTab("home");setPage("teams");
+        } else if(teamId&&["teams","team"].includes(page)) {
+          setScope(teamId);
+        } else if(page==="personal") {
+          setScope("personal");
+        }
         initialNavigation.current = null;
       }
     } catch (e) {
@@ -279,18 +338,26 @@ export function NotebookWorkspace({
     };
   }, [state.serverURL, user.id]);
   useEffect(() => {
+    const sequence = ++folderSequence.current,
+      context = JSON.stringify([state.serverURL,user.id,library?.id||"",!!state.offline]);
+    // Keep the mounted tree during same-library metadata refreshes. Clearing
+    // folders temporarily reparents every child note to the root, which
+    // recreates its DOM and loses the reader's scroll position.
+    if (folderContext.current !== context) {
+      folderContext.current = context;
+      setFolders([]);
+      setCatalog({revision:"0",items:[]});
+    }
     if (!library) return;
-    const sequence = ++folderSequence.current;
-    setFolders([]);
     Promise.all([request(`spaces/${library.id}/folders`), request(`spaces/${library.id}/catalog`)])
       .then(([v,c]) => {
         if (sequence === folderSequence.current) {setFolders(v);setCatalog(c);}
       })
-      .catch(report);
+      .catch(error => {if (sequence === folderSequence.current) report(error);});
     return () => {
       folderSequence.current++;
     };
-  }, [library?.id, state.offline, notes]);
+  }, [library?.id, state.serverURL, user.id, state.offline, notes]);
   useEffect(() => {
     if (!query.trim()) {
       setResults(null);
@@ -310,8 +377,10 @@ export function NotebookWorkspace({
     };
   }, [query, archived]);
   function navigate(next: string, tab = "recent") {
+    closeMobilePanels();setNewNoteEditing("");
     navigation.current++;
     setPage(next);
+    if(next==="personal")setScope("personal");
     setHomeTab(tab);
     setSelected(null);
     setFolder(null);
@@ -321,8 +390,10 @@ export function NotebookWorkspace({
     void refresh();
   }
   function openLibrary(id: string) {
+    closeMobilePanels();setNewNoteEditing("");
     navigation.current++;
     setLibraryId(id);
+    const book=libraries.find(book=>book.id===id);if(book)setScope(bookScope(book));
     setPage("library");
     setSelected(null);
     setFolder(null);
@@ -332,15 +403,17 @@ export function NotebookWorkspace({
     void refresh();
   }
   function openTeamLibraries(id: string) {
+    setScope(id);
     navigate("team");
     setTeamId(id);
-    history.replaceState(null, "", "/?team=" + id + "&view=libraries");
+    setTeamTab("libraries");
   }
   function openTeam(id: string) {
+    setScope(id);
     navigate("teams");
     setTeamId(id);
+    setTeamTab("home");
     setTeamHomeVisit((value) => value + 1);
-    history.replaceState(null, "", id ? "/?team=" + id : "/");
   }
   function askDelete(
     id: string,
@@ -415,10 +488,16 @@ export function NotebookWorkspace({
     void refresh();
   }
   function openNote(note: Note) {
+    const sameNoteList = !!selected && page === "library" && !!library && !!activeNote &&
+      activeNote.space_id === library.id && note.space_id === library.id &&
+      !!note.archived === !!activeNote.archived &&
+      notes.some(current => current.id === note.id && current.space_id === library.id);
+    closeMobilePanels();setNewNoteEditing("");
     navigation.current++;
     setSelected(note.id);
     setQuery("");
     if (libraries.some((l) => l.id === note.space_id)) {
+      setScope(bookScope(libraries.find(book=>book.id===note.space_id)!));
       setLibraryId(note.space_id);
       setPage("library");
       setArchived(note.archived);
@@ -428,10 +507,12 @@ export function NotebookWorkspace({
       setHomeTab("shared");
     }
     address(note.id);
-    void refresh();
+    // The document reauthorizes itself on every open. Switching among known
+    // notes in the visible library does not invalidate the library catalog.
+    if (!sameNoteList) void refresh();
   }
-  async function createNote(targetBook?: Library) {
-    if (busy || state.offline) return;
+  async function createNote(targetBook?: Library,targetFolder?:string|null) {
+    if (busy) return;
     const revision = ++navigation.current;
     setBusy(true);
     try {
@@ -439,24 +520,25 @@ export function NotebookWorkspace({
         targetBook ||
         (page === "library"
           ? library
-          : libraries.find((l) => l.kind === "personal"));
-      if (!book)
-        book = await request("spaces", "POST", {
-          kind: "personal",
-          name: translateUI("我的知识库"),
-          description: "",
-        });
+          : writableLibraries[0]);
+      if (!book) {
+        if(state.offline)throw new Error(translateUI("请先下载一个可编辑知识库的离线副本"));
+        if(!canCreateInScope)throw new Error(translateUI("当前空间没有可创建笔记的知识库"));
+        book = await request("spaces", "POST", {kind:scope==="personal"?"personal":"team",team_id:scope==="personal"?undefined:scope,name:translateUI("默认知识库"),description:""});
+      }
       const note = await request("documents", "POST", {
         space_id: book!.id,
-        folder_id:
+        folder_id:targetFolder!==undefined?targetFolder:
           page === "library" || targetBook?.id === libraryId ? folder : null,
         title: translateUI("未命名笔记"),
       });
       await refresh();
       if (navigation.current !== revision) return;
       setLibraryId(book!.id);
+      setScope(bookScope(book!));
       setPage("library");
       setSelected(note.id);
+      setNewNoteEditing(note.id);closeMobilePanels();
       setArchived(false);
       setQuery("");
       address(note.id);
@@ -496,6 +578,10 @@ export function NotebookWorkspace({
       targetLibraryId: note.space_id,
       tags: (note.tags || []).join(", "),
     });
+  }
+  async function reorderNoteList(entry:{kind:"folder"|"note";id:string},parent:string|null,before:string|null) {
+    try {setCatalog(await request(`spaces/${libraryId}/catalog`,"PATCH",{revision:catalog.revision,...entry,parent_id:parent,before}));await refresh();}
+    catch(error){report(error);try{setCatalog(await request(`spaces/${libraryId}/catalog`));}catch(error){report(error);}}
   }
   async function saveDialog(e: React.FormEvent) {
     e.preventDefault();
@@ -581,22 +667,14 @@ export function NotebookWorkspace({
     }
     return ids;
   };
-  const source = (results ?? notes).filter((n) => n.archived === archived);
-  const visible = source.filter((n) =>
-    page === "library"
-      ? n.space_id === libraryId &&
-        (!folder || branchIds(folder).has(n.folder_id || ""))
-      : homeTab === "mine"
-        ? n.space_kind === "personal" && n.created_by === user.id
-        : homeTab === "shared"
-          ? !!n.collaboration_role
-          : homeTab === "team"
-            ? n.space_kind === "team"
-            : true,
-  );
+  const source = (results ?? notes).filter(n=>n.archived===archived).filter(note=>page!=="home"||homeTab!=="recent"||!(note as any).library_archived&&!libraries.some(book=>book.id===note.space_id&&book.archived));
+  const showingTeamHome=page==="home"&&scope!=="personal"&&homeTab==="recent";
+  const inScope=(note:Note)=>scope==="personal"?note.space_kind==="personal":(note.team_id||libraries.find(book=>book.id===note.space_id)?.team_id)===scope;
+  const visible=source.filter(note=>page==="library"
+    ?note.space_id===libraryId&&(!folder||branchIds(folder).has(note.folder_id||""))
+    :inScope(note)&&(homeTab!=="shared"||note.created_by!==user.id&&(!!note.collaboration_role||libraries.some(book=>book.id===note.space_id&&book.kind==="personal"&&book.created_by!==user.id))));
   const folderPath: Folder[] = [];
-  const showNoteAuthors = (page === "library" && library?.kind === "team") ||
-    (page === "home" && !state.personal && ["recent", "team"].includes(homeTab));
+  const showNoteAuthors=(page==="library"&&library?.kind==="team")||(page==="home"&&!state.personal);
   let ancestor = folders.find((f) => f.id === folder);
   while (ancestor && !folderPath.some((item) => item.id === ancestor!.id)) {
     folderPath.unshift(ancestor);
@@ -667,6 +745,7 @@ export function NotebookWorkspace({
     );
   }
   function libraryViewControls() { return <div className="team-view-controls" role="group" aria-label={translateUI("知识库显示方式")}>
+                <label className="library-status-filter">{translateUI("状态")}<select aria-label={translateUI("知识库状态")} value={libraryStatus} onChange={event=>setLibraryStatus(event.target.value as typeof libraryStatus)}><option value="active">{translateUI("正常")}</option><option value="archived">{translateUI("已归档")}</option><option value="all">{translateUI("全部")}</option></select></label>
                 <button aria-label={translateUI("卡片视图")} aria-pressed={libraryView === "cards"} onClick={() => chooseLibraryView("cards")}><Icon name="table" />{translateUI("卡片")}</button>
                 <button aria-label={translateUI("列表视图")} aria-pressed={libraryView === "list"} onClick={() => chooseLibraryView("list")}><Icon name="list" />{translateUI("列表")}</button>
               </div>; }
@@ -675,8 +754,8 @@ export function NotebookWorkspace({
                 {libraries
                   .filter(
                     (l) =>
-                      l.kind === kind &&
-                      (kind !== "team" || l.team_id === teamId),
+                      l.kind === kind && (kind !== "personal" || !l.created_by || l.created_by === user.id) &&
+                      (kind !== "team" || l.team_id === teamId) && matchesLibraryStatus(l),
                   )
                   .map((l) => (
                     <article className="library-card" key={l.id}>
@@ -687,7 +766,7 @@ export function NotebookWorkspace({
                         <span className={"library-glyph " + l.kind}>
                           <Icon name="book" size={25} />
                         </span>
-                        <h2>{l.name}</h2>
+                        <h2>{l.name}</h2>{l.archived&&<span className="library-archive-badge"><Icon name="archive" size={13}/>{translateUI("已归档 · 只读")}</span>}
                         <p>
                           {l.description ||
                             (l.kind === "personal"
@@ -700,6 +779,7 @@ export function NotebookWorkspace({
                         <span>
                           {l.note_count}{translateUI(" 篇笔记 ")}<i /> {l.folder_count}{translateUI(" 个目录 ")}</span>
                         {pinButton(l)}
+                        {!state.personal && !l.archived && l.kind === "personal" && l.created_by === user.id && <button title={translateUI("分享知识库")} aria-label={translateUI("分享知识库 {0}", [l.name])} onClick={()=>setSharingLibrary(l.id)}><Icon name="share" size={16}/>{translateUI("分享")}</button>}
                         {l.role === "admin" && (
                           <button
                             aria-label={translateUI("管理知识库 {0}", [l.name])}
@@ -723,18 +803,18 @@ export function NotebookWorkspace({
                   ))}
                 {!libraries.some(
                   (l) =>
-                    l.kind === kind &&
-                    (kind !== "team" || l.team_id === teamId),
+                    l.kind === kind && (kind !== "personal" || !l.created_by || l.created_by === user.id) &&
+                    (kind !== "team" || l.team_id === teamId) && matchesLibraryStatus(l),
                 ) && (
                   <div className="academic-empty">
                     <Icon name="book" size={42} />
                     <h3>
-                      {kind === "personal"
+                      {libraryStatus==="archived"?translateUI("暂无已归档知识库"):kind === "personal"
                         ? translateUI("建立你的第一个知识库")
                         : translateUI("暂无团队知识库")}
                     </h3>
                     <p>
-                      {kind === "personal"
+                      {libraryStatus==="archived"?translateUI("归档的知识库会保留内容，可随时恢复。"):kind === "personal"
                         ? translateUI("可以按课题、项目或研究方向分别整理。")
                         : translateUI("由管理员创建知识库并邀请成员。")}
                     </p>
@@ -773,7 +853,7 @@ export function NotebookWorkspace({
             {!archived && homeTab !== "shared" && (
               <button
                 className="primary"
-                disabled={state.offline || busy || (page === "library" && !canCreateNotes)}
+                disabled={busy || (page === "library" && !canCreateNotes) || (page === "home" && !canCreateInScope)}
                 onClick={() => void createNote()}
               >{translateUI("新建笔记 ")}</button>
             )}
@@ -804,6 +884,7 @@ export function NotebookWorkspace({
     }
   }
   function pinButton(book: Library) {
+    if(book.archived)return null;
     return (
       <button
         className={"sidebar-pin" + (book.sidebar_pinned ? " pinned" : "")}
@@ -829,305 +910,163 @@ export function NotebookWorkspace({
         key={book.id}
         data-knowledge-library={book.id}
       >
-        <button
+        <WorkspaceLink
           className="sidebar-library"
+          href={hrefFor({page:"library",libraryId:book.id,scope:bookScope(book)})}
           title={book.name + (book.sidebar_pinned ? translateUI(" · 已固定") : translateUI(" · 最近更新"))}
-          onClick={() => openLibrary(book.id)}
+          onNavigate={() => openLibrary(book.id)}
         >
           <Icon name="book" size={16} />
           <span>{book.name}</span>
-        </button>
+        </WorkspaceLink>
         {pinButton(book)}
       </div>
     );
   }
+  function libraryRecent(book:Library) {return sidebarLibraryNotes(book.id,notes,sidebarActivity);}
+  const sharedPersonalLibraries=scopeLibraries.filter(book=>book.kind==="personal"&&book.created_by&&book.created_by!==user.id);
+  const connectionLabel = state.personal || !state.serverURL ? translateUI("连接服务器") : translateUI("切换服务器");
+  function connectForUpdate(){setSettings("");connectForClientUpdate(onReconnect);}
+  function openClientUpdate(){clientUpdate?.markRead();if(clientUpdate?.state.needsAuth&&clientUpdate.state.status!=="ready")connectForUpdate();else setSettings("clients");}
+  function chooseScope(value:string) {setScope(value);setTeamId("");if(value!=="personal")setShareKind("notes");navigate("home",page==="home"?homeTab:"recent");}
+  async function checkUpdatesShortcut(){
+    if(!native){window.dispatchEvent(new Event("anote-check-web-update"));return;}
+    setSettings("clients");
+    try{await window.anote?.checkUpdates?.();}catch(error){report(error);}
+  }
+  async function openServerWorkspace(value:string,nextPage:"home"|"friends"|"teams"="home"){
+    if(!state.personal){
+      if(nextPage==="home")chooseScope(value);
+      else{if(nextPage==="teams")setTeamId("");navigate(nextPage);}
+      return;
+    }
+    setChangingWorkspace(true);
+    try{
+      const connected=await window.anote?.openServerWorkspace?.({scope:value,page:nextPage});
+      if(!connected)window.dispatchEvent(new CustomEvent("anote-connect-server",{detail:{workspace:{scope:value,page:nextPage}}}));
+    }finally{setChangingWorkspace(false);}
+  }
+  async function openLocalWorkspace(){
+    if(state.personal)return;
+    setChangingWorkspace(true);
+    try{await (window.anote.openLocalWorkspace?.()||window.anote.enterPersonal());}
+    finally{setChangingWorkspace(false);}
+  }
+  async function refreshWorkspaceChoices(){
+    if(native&&state.personal&&window.anote.serverWorkspaces)setConnectionWorkspace(await window.anote.serverWorkspaces());
+  }
+  const accountTools=<div className="workspace-account-tools" role="group" aria-label={translateUI("用户与消息")} inert={mobile&&(mobileNavigation||mobileNotes)}>
+    {(!state.personal||native)&&<WorkspaceLink className={"sidebar-notifications"+(page==="notifications"?" active":"")+(unreadNotifications>0?" has-unread":"")} href={hrefFor({page:"notifications"})} onNavigate={()=>navigate("notifications")} aria-label={translateUI("消息通知")} title={translateUI("消息通知{0}", [(unreadNotifications?translateUI(" · {0} 条未读", [unreadNotifications]):"")])}><Icon name="bell" size={19}/>{unreadNotifications>0&&<span className="notification-dot" aria-label={translateUI("{0}条未读", [unreadNotifications])}/>}</WorkspaceLink>}
+    <WorkspaceAccountMenu name={user.name} email={user.email} local={!!state.personal} requests={socialBadges.requests}
+      native={native} scope={scope} teams={state.personal?connectionWorkspace?.teams||[]:teams} onScope={value=>openServerWorkspace(value)} onLocalMode={openLocalWorkspace}
+      switchingWorkspace={changingWorkspace} onWorkspaceOpen={refreshWorkspaceChoices} onWorkspaceError={report}
+      onFriends={()=>void openServerWorkspace("personal","friends").catch(report)} onTeams={()=>void openServerWorkspace("personal","teams").catch(report)} onSettings={()=>setSettings("general")} onLogout={()=>void Promise.resolve(onLogout()).catch(report)}
+      onCheckUpdates={()=>void checkUpdatesShortcut()}
+      href={(nextPage,team)=>hrefFor({page:nextPage,teamId:nextPage==="home"?"":team||"",scope:nextPage==="home"?team||scope:scope,homeTab:page==="home"?homeTab:"recent"})}/>
+  </div>;
+  const bannerScope=state.personal?translateUI("本地模式"):scope==="personal"?translateUI("个人"):scopeTeam?.name||translateUI("团队空间");
+  const bannerPage=selected?activeNote?.title||translateUI("笔记"):page==="home"?(homeTab==="shared"?translateUI("分享给我"):homeTab==="outgoing"?translateUI("我的分享"):scope==="personal"?translateUI("首页"):translateUI("团队首页")):page==="library"?library?.name||translateUI("知识库"):page==="personal"?translateUI("全部知识库"):page==="team"?selectedTeam?.name||translateUI("团队知识库"):page==="teams"?selectedTeam?.name||translateUI("团队管理"):({friends:translateUI("好友管理"),notifications:translateUI("消息通知"),wishes:translateUI("许愿池"),trash:translateUI("回收站")} as Record<string,string>)[page]||translateUI("首页");
+  const compactNavigation=null;
+  useEffect(()=>{
+    if(!mobile)return;
+    const back=(event:Event)=>{
+      if(event.defaultPrevented||document.querySelector('[role="dialog"][aria-modal="true"],[role="alertdialog"][aria-modal="true"]'))return;
+      const menus=[...document.querySelectorAll<HTMLDetailsElement>('details[open][data-workspace-identity-menu],details.note-more[open]')];
+      if(menus.length){event.preventDefault();for(const menu of menus)menu.open=false;return;}
+      if(selected){event.preventDefault();if(library&&activeNote?.space_id===library.id)openLibrary(library.id);else navigate("home","shared");}
+      else if(page!=="home"){event.preventDefault();navigate("home");}
+    };
+    window.addEventListener("anote:mobile-back",back);return()=>window.removeEventListener("anote:mobile-back",back);
+  },[mobile,selected,page,library?.id,activeNote?.space_id]);
   return (
-    <div className={"academic-workspace" + (sidebarCollapsed ? " academic-focus" : "")}>
-      {!sidebarCollapsed && (
+    <div className={"academic-workspace workspace-account-layout" + (sidebarCollapsed ? " academic-focus" : "")+(mobile?" workspace-mobile":"")} style={mobile?{"--mobile-workspace-height":mobileHeight+"px"} as React.CSSProperties:undefined} inert={!!state.workspaceSwitching||!!state.storageMigrating||!!state.backupRestoring}>
+      <header className="workspace-top-banner" aria-label={translateUI("工作空间顶栏")} inert={mobile&&(mobileNavigation||mobileNotes)}>
+      <div className="workspace-corner-navigation" role="group" aria-label={translateUI("导航与品牌")} inert={mobile&&(mobileNavigation||mobileNotes)}>
+        <button className="academic-sidebar-toggle" aria-label={navigationCollapsed?translateUI("展开侧边栏"):translateUI("收起侧边栏")} title={navigationCollapsed?translateUI("展开侧边栏"):translateUI("收起侧边栏")} aria-expanded={!navigationCollapsed} aria-controls="workspace-sidebar" onClick={()=>setSidebarCollapsed(!navigationCollapsed)}><Icon name={navigationCollapsed?"panel-open":"panel-close"} size={18}/></button>
+        <WorkspaceLink className={sidebarCollapsed?"sidebar-collapsed-home":"academic-brand"} href={hrefFor()} aria-label={sidebarCollapsed?translateUI("首页"):native?"ANote":siteName} title={sidebarCollapsed?translateUI("首页"):native?"ANote":siteName} onNavigate={()=>navigate("home")}>
+          {sidebarCollapsed?<Icon name="home" size={18}/>:<><span className="brand-logo-frame"><BrandLogo size={30}/></span><strong>{native?"ANote":siteName}</strong></>}
+        </WorkspaceLink>
+      </div>
+      <nav className="workspace-banner-context" aria-label={translateUI("当前位置")}>
+        <WorkspaceLink href={hrefFor()} onNavigate={()=>navigate("home")} title={bannerScope}>{bannerScope}</WorkspaceLink>
+        <Icon name="chevron" size={13}/>
+        {selected&&library&&<><WorkspaceLink href={hrefFor({page:"library",libraryId:library.id})} onNavigate={()=>openLibrary(library.id)} title={library.name}>{library.name}</WorkspaceLink><Icon name="chevron" size={13}/></>}
+        <span aria-current="page" title={bannerPage}>{bannerPage}</span>
+      </nav>
+      {accountTools}
+      </header>
+      <MobilePanel mobile={mobile} open={mobile?mobileNavigation:!sidebarCollapsed} label={translateUI("知识库导航")} closeLabel={translateUI("关闭导航")} onClose={()=>setMobileNavigation(false)}>
         <aside
           className="academic-sidebar"
           id="workspace-sidebar"
           aria-label={translateUI("知识库侧边栏")}
         >
-          <div className="academic-sidebar-heading">
-            <button
-              className="academic-brand"
-              onClick={() => navigate("home")}
-              title={siteName}
-            >
-              <span>
-                <Icon name="book" size={22} />
-              </span>
-              <strong>{siteName}</strong>
-            </button>
-            <button
-              className="academic-sidebar-toggle"
-              aria-label={translateUI("收起侧边栏")}
-              title={translateUI("收起侧边栏")}
-              aria-expanded={true}
-              aria-controls="workspace-sidebar"
-              onClick={() => setSidebarCollapsed(true)}
-            >
-              <Icon name="panel-close" size={18} />
-            </button>
-          </div>
           <nav className="academic-navigation" aria-label={translateUI("主导航")}>
-            <button
+            <WorkspaceLink
               className={
-                page === "home" && homeTab !== "shared" ? "active" : ""
+                page === "home" ? "active" : ""
               }
+              href={hrefFor()}
               title={translateUI("首页")}
-              onClick={() => navigate("home")}
+              onNavigate={() => navigate("home")}
             >
               <Icon name="home" />
               <span>{translateUI("首页")}</span>
-            </button>
+            </WorkspaceLink>
             {!state.personal && (
               <>
-                <button
-                  className={
-                    page === "home" && homeTab === "shared" ? "active" : ""
-                  }
-                  onClick={() => navigate("home", "shared")}
-                >
-                  <Icon name="share" />
-                  <span>{translateUI("分享给我")}</span>
-                </button>
-                <button
-                  className={page === "teams" ? "active" : ""}
-                  title={translateUI("我的团队")}
-                  onClick={() => {
-                    setTeamId("");
-                    navigate("teams");
-                  }}
-                >
-                  <Icon name="users" />
-                  <span>{translateUI("我的团队")}</span>
-                  <small>{teams.length}</small>
-                </button>
+                <WorkspaceLink href={hrefFor({page:"wishes"})} className={page === "wishes" ? "active" : ""} title={translateUI("许愿池")} onNavigate={() => navigate("wishes")}><Icon name="wish"/><span>{translateUI("许愿池")}</span></WorkspaceLink>
               </>
             )}
-            <button
-              title={translateUI("回收站")}
-              className={page === "trash" ? "active" : ""}
-              onClick={() => navigate("trash")}
-            >
-              <Icon name="trash" />
-              <span>{translateUI("回收站")}</span>
-              <small>
-                {trashNotes.length +
-                  trashLibraries.length +
-                  trashTeams.length || ""}
-              </small>
-            </button>
           </nav>
           <div className="academic-sidebar-content">
-            <section className="knowledge-personal-group" data-sidebar-group="personal">
-            <button
-              data-testid="personal-libraries"
-              className={
-                "knowledge-section-title" +
-                (page === "personal" ? " active" : "")
-              }
-              onClick={() => navigate("personal")}
-            >
-              <Icon name="user" size={16} />
-              <span title={personalLibraryLabel}>{personalLibraryLabel}</span>
-              <small>
-                {libraries.filter((book) => book.kind === "personal").length}
-              </small>
-            </button>
-            {sidebarLibraries(libraries.filter(book => book.kind === "personal"),notes,sidebarActivity).map(knowledgeLibrary)}
-            {!libraries.some((book) => book.kind === "personal") && (
-              <p className="catalog-empty">{translateUI("还没有个人知识库")}</p>
-            )}
+            <nav className="academic-navigation sidebar-library-navigation" aria-label={translateUI("知识库导航")}>
+              <WorkspaceLink href={scope==="personal"?hrefFor({page:"personal"}):hrefFor({page:"teams",teamId:scope,teamTab:"libraries"})} className={(scope==="personal"?page==="personal":page==="teams"&&teamId===scope&&teamTab==="libraries")?"active":""} onNavigate={()=>scope==="personal"?navigate("personal"):openTeamLibraries(scope)}><Icon name="book"/><span>{translateUI("全部知识库")}</span></WorkspaceLink>
+            </nav>
+            <section className="knowledge-current-group" data-sidebar-group={scope} aria-label={translateUI("当前空间知识库")}>
+                {sidebarLibraries(scopeLibraries,notes,sidebarActivity).map(book=><section className="sidebar-book" key={book.id} aria-label={translateUI("{0}的最近笔记", [book.name])}>
+                  <SidebarGroup serverURL={state.serverURL} userId={user.id} name={"library:"+book.id} label={book.name} heading={knowledgeLibrary(book)}>
+                    {libraryRecent(book).map(note=><WorkspaceLink key={note.id} href={hrefFor({selected:note.id})} className={"sidebar-library-note"+(selected===note.id?" active":"")} aria-current={selected===note.id?"page":undefined} title={note.title} onNavigate={()=>openNote(note)}><Icon name="file" size={13}/><span>{note.title}</span></WorkspaceLink>)}
+                    {!libraryRecent(book).length&&<p className="catalog-empty">{translateUI("暂无笔记")}</p>}
+                  </SidebarGroup>
+                </section>)}
+                {!scopeLibraries.length&&<p className="catalog-empty">{translateUI("暂无知识库")}</p>}
             </section>
-            {teams
-              .filter((team) => !team.archived)
-              .map((team) => (
-                <section className="knowledge-team-group" key={team.id} data-sidebar-group={team.id}>
-                  <div className="academic-team-libraries">
-                    <button
-                      className={
-                        "knowledge-section-title" +
-                        (["team", "teams"].includes(page) && teamId === team.id
-                          ? " active"
-                          : "")
-                      }
-                      aria-label={
-                        team.name.endsWith(translateUI("团队"))
-                          ? team.name
-                          : translateUI("{0}团队", [team.name])
-                      }
-                      onClick={() => openTeam(team.id)}
-                    >
-                      <Icon name="users" size={16} />
-                      <span>
-                        {team.name.endsWith(translateUI("团队"))
-                          ? team.name
-                          : translateUI("{0}团队", [team.name])}
-                      </span>
-                      <small>
-                        {
-                          libraries.filter((book) => book.team_id === team.id)
-                            .length
-                        }
-                      </small>
-                    </button>
-                  </div>
-                  {sidebarLibraries(libraries.filter(book => book.team_id === team.id),notes,sidebarActivity).map(knowledgeLibrary)}
-                </section>
-              ))}
-            {!libraries.some((book) => book.sidebar_pinned) && (
-              <p className="sidebar-pin-hint">{translateUI("固定常用知识库，其余按最近更新补足 5 个。 ")}</p>
-            )}
           </div>
-          {native &&
-            (state.personal ? (
-              <div className="native-sidebar-actions">
-                <button
-                  onClick={() =>
-                    void window.anote.openPersonalFolder().catch(report)
-                  }
-                >
-                  <Icon name="folder" size={16} />
-                  <span>{translateUI("打开本地笔记目录")}</span>
-                </button>
-                <button
-                  onClick={() =>
-                    void window.anote.enterPersonal().catch(report)
-                  }
-                >
-                  <Icon name="folder" size={16} />
-                  <span>{translateUI("切换个人目录")}</span>
-                </button>
-                <button
-                  onClick={() =>
-                    void window.anote
-                      .leavePersonal()
-                      .then(() => onReconnect?.())
-                      .catch(report)
-                  }
-                >
-                  <Icon name="users" size={16} />
-                  <span>{translateUI("连接团队空间")}</span>
-                </button>
-              </div>
-            ) : (
-              <div className="native-sidebar-actions">
-                <button
-                  onClick={() =>
-                    void window.anote.chooseWorkspace().catch(report)
-                  }
-                >
-                  <Icon name="folder" size={16} />
-                  <span>{translateUI("本地工作目录")}</span>
-                </button>
-                <button
-                  onClick={() =>
-                    void window.anote.enterPersonal().catch(report)
-                  }
-                >
-                  <Icon name="file" size={16} />
-                  <span>{translateUI("本地个人笔记")}</span>
-                </button>
-                <button
-                  onClick={() => void window.anote.offline(!state.offline)}
-                >
-                  <span
-                    className={
-                      "connection-dot " + (state.offline ? "offline" : "")
-                    }
-                  />
-                  {state.offline ? translateUI("离线模式") : translateUI("在线同步")}
-                  <small>
-                    {state.sync.pending.length
-                      ? translateUI("{0} 项待同步", [state.sync.pending.length])
-                      : ""}
-                  </small>
-                </button>
-              </div>
-            ))}
-          <div className="academic-user">
-            <button
-              className="sidebar-user-profile"
-              aria-label={translateUI("账号与偏好：{0}", [user.name])}
-              title={user.name}
-              onClick={() => setSettings("general")}
-            >
-              <span className="user-avatar" aria-hidden="true">{Array.from(user.name)[0]}</span>
-              <span className="sidebar-user-details">
-                <strong>{user.name}</strong>
-                <small>
-                  <span
-                    className={
-                      "connection-dot " + (state.offline ? "offline" : "")
-                    }
-                  />
-                  {state.personal
-                    ? translateUI("本地个人模式")
-                    : state.offline
-                      ? translateUI("离线编辑")
-                      : translateUI("在线")}
-                </small>
-              </span>
-            </button>
-            <div className="sidebar-user-actions">
-              <AppearanceButton appearance={appearance} />
-              <button
-                aria-label={translateUI("设置")}
-                title={translateUI("设置")}
-                onClick={() => setSettings("general")}
-              >
-                <Icon name="settings" size={16} />
-                <span>{translateUI("设置")}</span>
-              </button>
-              <button
-                className="sidebar-sign-out"
-                aria-label={state.personal ? translateUI("关闭个人模式") : translateUI("退出登录")}
-                title={state.personal ? translateUI("关闭个人模式") : translateUI("退出登录")}
-                onClick={() => void Promise.resolve(onLogout()).catch(report)}
-              >
-                <Icon name="logout" size={16} />
-                <span>{state.personal ? translateUI("关闭") : translateUI("退出")}</span>
-              </button>
-            </div>
-          </div>
+          <nav className="sidebar-bottom-row" aria-label={translateUI("辅助导航")}>
+            <WorkspaceLink href={hrefFor({page:"trash"})} title={translateUI("回收站")} className={page === "trash" ? "active" : ""} onNavigate={() => navigate("trash")}>
+              <Icon name="trash"/><span>{translateUI("回收站")}</span><small>{trashNotes.length + trashLibraries.length + trashTeams.length || ""}</small>
+            </WorkspaceLink>
+            <AppearanceButton appearance={appearance} />
+          </nav>
         </aside>
-      )}
-      {sidebarCollapsed && (
-        <aside
-          className="academic-sidebar-collapsed"
-          id="workspace-sidebar"
-          aria-label={translateUI("侧边栏已收起")}
-        >
-          <button
-            className="academic-sidebar-toggle"
-            aria-label={translateUI("展开侧边栏")}
-            title={translateUI("展开侧边栏")}
-            aria-expanded={false}
-            aria-controls="workspace-sidebar"
-            onClick={() => setSidebarCollapsed(false)}
-          >
-            <Icon name="panel-open" size={18} />
-          </button>
-        </aside>
-      )}
-      <main className="academic-main">
+      </MobilePanel>
+      <main className="academic-main" inert={mobile&&(mobileNavigation||mobileNotes)}>
         {selected ? (
           <div className="note-workspace">
-          {library && activeNote?.space_id === library.id && <LibraryNoteList
+          {library && activeNote?.space_id === library.id && <MobilePanel mobile={mobile} open={!mobile||mobileNotes} label={translateUI("同库笔记")} closeLabel={translateUI("关闭笔记列表")} onClose={()=>setMobileNotes(false)}><LibraryNoteList
+            compact={mobile}
             serverURL={state.serverURL} userId={user.id} library={library}
             notes={notes.filter(note => note.space_id === library.id && !!note.archived === !!activeNote.archived)}
-            entries={catalog.items} selected={selected}
+            folders={folders} entries={catalog.items} selected={selected}
+            canCreate={canCreateNotes&&!activeNote.archived&&!busy} canOrganize={canOrganize&&!activeNote.archived}
+            onCreate={()=>void createNote(library,activeNote.folder_id||null)} onSettings={note=>{const current=notes.find(item=>item.id===note.id);if(current)editNote(current);}} onMove={reorderNoteList}
+            onNewFolder={parent=>newFolder(parent)} onFolderSettings={item=>setDialog({kind:"folder-edit",id:item.id,name:item.name,parent:item.parent_id||""})}
             onSelect={note => { const target = notes.find(item => item.id === note.id); if (target) openNote(target); }}
             onLibrary={() => openLibrary(library.id)}
-          />}
+          /></MobilePanel>}
           <Document
-            key={`${state.serverURL}:${user.id}:${selected}:${state.token || "offline"}`}
+            key={`${documentOwner}:${selected}`}
             state={{ ...state, user }}
             id={selected}
             title={activeNote?.title || translateUI("笔记")}
+            compact={mobile}
+            initiallyEditing={newNoteEditing===selected}
+            onNotes={mobile&&library&&activeNote?.space_id===library.id?()=>setMobileNotes(true):undefined}
+            notesOpen={mobileNotes}
+            noteTargets={notes}
+            onOpenNoteLink={id=>{if(!/^[-\w]{1,80}$/.test(id))return;void request("documents/"+id).then(note=>{setNotes(current=>current.some(item=>item.id===note.id)?current:[...current,note]);openNote(note);}).catch(report);}}
+            headerControls={compactNavigation}
             onDetails={
               activeNote
                 ? (value) => editNote({ ...activeNote, ...value })
@@ -1145,13 +1084,17 @@ export function NotebookWorkspace({
             }
           />
           </div>
+        ) : page==="notifications"&&(!state.personal||native)||page==="friends"&&!state.personal ? (
+          <SocialPage key={page} page={page} headerControls={compactNavigation} userId={user.id} offline={state.offline} localOnly={localNotificationsOnly} clientUpdate={clientUpdate} onClientUpdate={openClientUpdate} onOpenNote={id=>{void request("documents/"+id).then(openNote).catch(report);}} onFriends={()=>navigate("friends")} onError={report}/>
+        ) : page === "wishes" && !state.personal ? (
+          <Wishes user={user} offline={state.offline} headerControls={compactNavigation}/>
         ) : page === "trash" ? (
           <div className="academic-browser trash-browser">
             <header className="academic-page-header">
-              <div>
+              <div className="compact-page-heading">{compactNavigation}<div>
                 <h1>{translateUI("回收站")}</h1>
                 <p>{translateUI("删除满 30 天后自动清理。此前可以恢复，也可手动彻底删除。已撤销的分享链接和邀请不会重新启用。 ")}</p>
-              </div>
+              </div></div>
             </header>
             <p className="trash-hint">{translateUI("团队、知识库删除后，其下内容一同隐藏。先恢复团队，再恢复单独删除的知识库或笔记。 ")}</p>
             <nav className="management-tabs trash-tabs" role="tablist" aria-label={translateUI("回收站分类")}>
@@ -1231,17 +1174,19 @@ export function NotebookWorkspace({
             key={`${teamId}:${teamHomeVisit}`}
             user={user}
             teamId={teamId}
+            headerControls={compactNavigation}
             serverURL={state.serverURL}
             onSelect={openTeam}
             libraries={libraries}
             documents={notes}
             librariesContent={renderLibraries("team")}
             libraryViewControls={libraryViewControls()}
-            initialTab={new URLSearchParams(location.search).get("view") || "home"}
+            initialTab={teamTab}
+            onTabChange={setTeamTab}
             onNewLibrary={() => setDialog({kind:"library-new",libraryKind:"team",teamId,name:"",description:""})}
             onOpenLibrary={openLibrary}
             onOpenNote={(id) => {
-              void request("documents/" + id)
+              void request("documents/" + id + "?content=metadata")
                 .then(openNote)
                 .catch(report);
             }}
@@ -1252,11 +1197,11 @@ export function NotebookWorkspace({
         ) : (
           <div className="academic-browser">
             <header className={"academic-page-header" + (page === "personal" ? " library-collection-header" : "")}>
-              <div>
-                {page === "library" && <span className="page-eyebrow">{library?.kind === "personal" ? personalLibraryLabel : translateUI("{0}知识库", [teams.find(t => t.id === library?.team_id)?.name || translateUI("所属团队")])}</span>}
+              <div className="compact-page-heading">{compactNavigation}<div>
+                {page === "library" && <span className="page-eyebrow">{library?.kind === "personal" ? library.created_by !== user.id && library.creator_name ? translateUI("{0}的知识库", [library.creator_name]) : personalLibraryLabel : translateUI("{0}知识库", [teams.find(t => t.id === library?.team_id)?.name || translateUI("所属团队")])}</span>}
                 <h1>
                   {page === "home"
-                    ? translateUI("首页")
+                    ? scopeTeam?.name||translateUI("首页")
                     : page === "personal"
                       ? personalLibraryLabel
                       : page === "team"
@@ -1266,12 +1211,15 @@ export function NotebookWorkspace({
                         : library?.name || translateUI("知识库")}
                 </h1>
                 {page === "library" && library?.description && <p>{library.description}</p>}
-              </div>
-              <div className="academic-page-actions">
+                {page === "home" && scopeTeam?.description && <p className="muted">{scopeTeam.description}</p>}
+              </div></div>
+              <div className="workspace-header-actions"><div className="academic-page-actions">
+                {page==="home"&&scopeTeam&&<WorkspaceLink href={hrefFor({page:"teams",teamId:scope})} className="home-team-link" onNavigate={()=>openTeam(scope)}><Icon name="users"/>{translateUI("团队主页")}</WorkspaceLink>}
                 {page === "personal" && <div className="library-view-toolbar">{libraryViewControls()}</div>}
                 {page === "library" && (
                   <>
                     {library && pinButton(library)}
+                    {!state.personal && !library?.archived && library?.kind === "personal" && library.created_by === user.id && <button onClick={()=>setSharingLibrary(library.id)}><Icon name="share"/>{translateUI("分享知识库")}</button>}
                     <button
                       className={archived ? "active" : ""}
                       onClick={() => {
@@ -1280,7 +1228,7 @@ export function NotebookWorkspace({
                       }}
                     >
                       <Icon name="archive" />
-                      {archived ? translateUI("返回笔记") : translateUI("归档")}
+                      {archived ? translateUI("返回笔记") : translateUI("归档笔记")}
                     </button>
                     {canOrganize && (
                       <button onClick={() => newFolder()}>
@@ -1288,7 +1236,7 @@ export function NotebookWorkspace({
                     )}
                   </>
                 )}
-                {page === "personal" || page === "team" ? (
+            {page === "personal" || page === "team" ? (
                   <button
                     className="primary"
                     disabled={
@@ -1313,13 +1261,14 @@ export function NotebookWorkspace({
                 ) : (
                   <button
                     className="primary"
-                    disabled={state.offline || busy || loading || (page === "library" && !canCreateNotes)}
+                    disabled={busy || loading || (page === "library" && !canCreateNotes) || (page === "home" && !canCreateInScope)}
                     onClick={() => void createNote()}
                   >
                     <Icon name="plus" />{translateUI("新建笔记 ")}</button>
                 )}
-              </div>
+              </div></div>
             </header>
+                {page === "library"&&library?.archived&&<div className="library-archive-notice" role="status"><Icon name="archive"/><p>{translateUI("此知识库已归档，只能阅读、搜索和导出。")}</p>{library.role==="admin"&&!state.offline&&<button onClick={()=>setArchiveTarget(library)}>{translateUI("恢复知识库")}</button>}</div>}
             {page === "personal" || page === "team" ? (
               renderLibraries(page as "personal" | "team")
             ) : (
@@ -1328,14 +1277,13 @@ export function NotebookWorkspace({
                   {page === "home" ? (
                     <nav className="home-tabs">
                       {[
-                        ["recent", translateUI("最近")],
-                        ["mine", translateUI("个人")],
+                        ["recent", scope === "personal" ? translateUI("最近") : translateUI("团队首页")],
                         ["shared", translateUI("分享给我")],
-                        ["team", translateUI("团队")],
+                        ["outgoing", translateUI("我的分享")],
                       ]
                         .filter(
                           ([v]) =>
-                            !state.personal || ["recent", "mine"].includes(v),
+                            !state.personal || v === "recent",
                         )
                         .map(([v, l]) => (
                           <button
@@ -1373,7 +1321,7 @@ export function NotebookWorkspace({
                       {archived && <small>{translateUI("归档")}</small>}
                     </div>
                   )}
-                  <label className="academic-search">
+                  {!showingTeamHome&&<label className="academic-search">
                     <Icon name="search" size={17} />
                     <input
                       aria-label={translateUI("搜索笔记")}
@@ -1381,12 +1329,13 @@ export function NotebookWorkspace({
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                     />
-                  </label>
+                  </label>}
                 </div>
-                {loading ? (
+                {page === "home" && scope==="personal" && homeTab === "shared" && sharedPersonalLibraries.length>0 && <section className="shared-library-list" aria-label={translateUI("分享给我的知识库")}><h2>{translateUI("共享知识库")}</h2>{sharedPersonalLibraries.map(book=><button key={book.id} onClick={()=>openLibrary(book.id)}><Icon name="book"/><span>{book.name}<small>{book.creator_name}{translateUI(" · 只读")}</small></span></button>)}</section>}
+                {showingTeamHome?<TeamHome key={`${state.serverURL}:${user.id}:${scope}:${state.offline}`} teamId={scope} cachedTeam={scopeTeam} offline={state.offline} libraries={libraries} documents={notes} onOpenNote={id=>{void request("documents/"+id+"?content=metadata").then(openNote).catch(report);}} onManage={()=>{openTeam(scope);setTeamTab("settings");}} onError={report}/>:page === "home" && homeTab === "outgoing" && !state.personal ? <MyShares key={scope} scope={scope} kind={scope==="personal"?shareKind:"notes"} onKindChange={setShareKind} status={shareStatus} onStatusChange={setShareStatus} query={query} offline={state.offline} serverURL={state.serverURL} onOpenLibrary={openLibrary} onOpenNote={id => {void request("documents/"+id).then(openNote).catch(report);}} onChanged={() => void refresh()}/> : loading ? (
                   <div className="academic-empty">{translateUI("正在加载笔记…")}</div>
                 ) : (
-                  page === "library" && !query.trim() && !archived ? <LibraryOutline key={libraryId} catalog={catalog} folders={folders} notes={visible} storageKey={`anote:collapsed:${state.serverURL}:${user.id}:${libraryId}`} canOrganize={canOrganize} canCreate={canCreateNotes} showAuthors={showNoteAuthors} noteRow={noteRow} onFolder={item => setDialog({kind:"folder-edit",id:item.id,name:item.name,parent:item.parent_id || ""})} onMove={async (entry,parent,before) => {
+                  page === "library" && !query.trim() && !archived ? <LibraryOutline key={libraryId} catalog={catalog} folders={folders} notes={visible} storageKey={`simple-notes:collapsed:${state.serverURL}:${user.id}:${libraryId}`} canOrganize={canOrganize} canCreate={canCreateNotes} showAuthors={showNoteAuthors} noteRow={noteRow} onFolder={item => setDialog({kind:"folder-edit",id:item.id,name:item.name,parent:item.parent_id || ""})} onMove={async (entry,parent,before) => {
                     try {setCatalog(await request(`spaces/${libraryId}/catalog`,"PATCH",{revision:catalog.revision,kind:entry.kind,id:entry.id,parent_id:parent,before}));await refresh();}
                     catch(error) {report(error);setCatalog(await request(`spaces/${libraryId}/catalog`));}
                   }} /> : renderNotes()
@@ -1396,6 +1345,7 @@ export function NotebookWorkspace({
           </div>
         )}
       </main>
+      {sharingLibrary&&<LibrarySharing id={sharingLibrary} serverURL={state.serverURL} onClose={()=>setSharingLibrary(null)} onChanged={()=>void refresh()}/>}
       {error && (
         <div className="academic-toast" role="alert">
           <span>{error}</span>
@@ -1484,6 +1434,7 @@ export function NotebookWorkspace({
           </form>
         </div>
       )}
+      {archiveTarget&&<LibraryArchiveDialog library={archiveTarget} local={!!state.personal} onClose={()=>setArchiveTarget(null)} onChanged={async()=>{await refresh();window.dispatchEvent(new Event("anote-note-changed"));}} onError={report}/>}
       {dialog && (
         <div className="modal academic-modal">
           <form
@@ -1529,7 +1480,7 @@ export function NotebookWorkspace({
                 aria-label={translateUI("名称")}
                 maxLength={dialog.kind.startsWith("note") ? 200 : 100}
                 value={dialog.name}
-                disabled={busy||!!dialog.movePreview}
+                disabled={busy||!!dialog.movePreview||(dialog.kind==="library-edit"&&!!libraries.find(book=>book.id===dialog.id)?.archived)}
                 onChange={(e) => setDialog({ ...dialog, name: e.target.value })}
               />
             </label>
@@ -1537,6 +1488,7 @@ export function NotebookWorkspace({
               <label>{translateUI("简介 ")}<textarea
                   aria-label={translateUI("简介")}
                   rows={3}
+                  disabled={busy||(dialog.kind==="library-edit"&&!!libraries.find(book=>book.id===dialog.id)?.archived)}
                   value={dialog.description || ""}
                   onChange={(e) =>
                     setDialog({ ...dialog, description: e.target.value })
@@ -1632,16 +1584,17 @@ export function NotebookWorkspace({
                     onClick={() => askDelete(dialog.id!, dialog.name)}
                   >{translateUI("删除笔记 ")}</button>
                 )}
+              {dialog.kind === "library-edit" && libraries.find(book=>book.id===dialog.id)?.role==="admin" && <button type="button" disabled={busy||state.offline} onClick={()=>{setArchiveTarget(libraries.find(book=>book.id===dialog.id)!);setDialog(null);}}>{libraries.find(book=>book.id===dialog.id)?.archived?translateUI("恢复知识库"):translateUI("归档知识库")}</button>}
               {dialog.kind === "library-edit" &&
                 libraries.find((l) => l.id === dialog.id)?.role === "admin" && (
                   <button
                     type="button"
                     className="danger-action"
-                    disabled={busy || state.offline}
+                    disabled={busy || state.offline||!!libraries.find(book=>book.id===dialog.id)?.archived}
                     onClick={() => askDelete(dialog.id!, dialog.name, "spaces")}
                   >{translateUI("删除知识库 ")}</button>
                 )}
-              {dialog.kind === "library-edit" && dialog.libraryKind === "team" && <button type="button" onClick={() => { setPermissionLibraryId(dialog.id!); setDialog(null); }}>{translateUI("权限分配")}</button>}
+              {dialog.kind === "library-edit" && dialog.libraryKind === "team" && <button type="button" disabled={!!libraries.find(book=>book.id===dialog.id)?.archived} onClick={() => { setPermissionLibraryId(dialog.id!); setDialog(null); }}>{translateUI("权限分配")}</button>}
               {dialog.kind === "folder-edit" && (
                 <button type="button" className="danger-action" disabled={busy || state.offline} onClick={() => { setFolderDeleteTarget(folders.find(f=>f.id===dialog.id)!);setDialog(null); }}>{translateUI("删除目录")}</button>
               )}
@@ -1676,7 +1629,7 @@ export function NotebookWorkspace({
               )}
               <span />
               <button type="button" disabled={busy} onClick={() => setDialog(null)}>{translateUI("取消 ")}</button>
-              <button className="primary" disabled={busy}>
+              <button className="primary" disabled={busy||(dialog.kind==="library-edit"&&!!libraries.find(book=>book.id===dialog.id)?.archived)}>
                 {busy ? translateUI("保存中…") : dialog.movePreview?translateUI("确认移动"):translateUI("保存")}
               </button>
             </footer>
@@ -1715,7 +1668,8 @@ export function NotebookWorkspace({
                 className={settings === "general" ? "active" : ""}
                 onClick={() => setSettings("general")}
               >{translateUI("账号与偏好 ")}</button>
-              {!state.personal && <button className={settings === "ai" ? "active" : ""} onClick={() => setSettings("ai")}>{translateUI("AI工具链")}</button>}
+              <button className={settings === "ai" ? "active" : ""} onClick={() => setSettings("ai")}>{translateUI("AI工具链")}</button>
+              {state.desktop===true && <button className={settings === "offline" ? "active" : ""} onClick={()=>setSettings("offline")}>{translateUI("离线与备份")}</button>}
               {user.is_admin && (
                 <button
                   className={settings === "team" ? "active" : ""}
@@ -1723,21 +1677,25 @@ export function NotebookWorkspace({
                 >{translateUI("平台管理 ")}</button>
               )}
 
-              {!state.personal && (
+              {(!state.personal || native) && (
                 <button
                   className={settings === "clients" ? "active" : ""}
                   onClick={() => setSettings("clients")}
-                >{translateUI("桌面客户端 ")}</button>
+                >
+                  {native?translateUI("客户端更新"):translateUI("桌面客户端")}
+                </button>
               )}
             </nav>
             <div className="settings-body">
               {settings === "team" && user.is_admin ? (
                 <PlatformAdmin user={user} onError={report} />
 
+              ) : settings === "offline" && state.desktop===true ? (
+                <OfflineControls state={state} onError={report}/>
               ) : settings === "clients" ? (
-                <Clients onError={report} />
-              ) : settings === "ai" && !state.personal ? (
-                state.offline ? <p className="muted">{translateUI("连接服务器后可管理 AI 工具链。")}</p> : <McpConnections onError={report}/>
+                <Clients onError={report} onConnectServer={connectForUpdate} updateState={state.updates} authenticated={!(native&&(state.personal||!state.token))} serverURL={state.personal?state.connectionServerURL:state.serverURL}/>
+              ) : settings === "ai" ? (
+                state.personal?<LocalMcpSettings onError={report}/>:state.offline ? <p className="muted">{translateUI("连接服务器后可管理 AI 工具链。")}</p> : <McpConnections onError={report}/>
               ) : (
                 <>
                   <LanguageSelect />
@@ -1747,35 +1705,46 @@ export function NotebookWorkspace({
                       <h3>{user.name}</h3>
                       <p>{user.username || ""}</p>
                     </div>
-                    <span className="profile-status">
+                    {(!native || state.personal) && <span className="profile-status">
                       {state.personal
                         ? translateUI("本地个人模式")
                         : state.offline
                           ? translateUI("离线")
                           : translateUI("在线")}
-                    </span>
+                    </span>}
                   </div>
                   <p>
                     {state.personal
-                      ? translateUI("个人模式仅保存到当前设备。切换团队连接不会自动上传个人笔记。")
+                      ? translateUI("个人模式仅保存到当前设备。连接服务器可访问平台上的个人与团队笔记，本地个人笔记会继续保留在当前目录。")
                       : translateUI("个人笔记默认仅自己可见；团队笔记继承知识库权限，团队外链由团队安全设置控制。")}
                   </p>
                   {native && (
                     <>
                       {!state.personal && (
-                        <p className="muted">{translateUI("服务地址：")}{state.serverURL}</p>
+                        <p className="muted">{translateUI("服务器：")}{siteName} · {state.serverURL}</p>
                       )}
-                      <p className="muted">{translateUI("本地目录：")}{state.workspace || translateUI("尚未选择")}
-                      </p>
                       {state.credentialWarning && (
-                        <p className="muted">{translateUI(state.credentialWarning)}</p>
+                        <p className="muted">{state.credentialWarning}</p>
                       )}
                       <button
                         onClick={() => {
                           setSettings("");
                           onReconnect?.();
                         }}
-                      >{translateUI("连接设置 ")}</button>
+                      >
+                        {connectionLabel}
+                      </button>
+                      <section className="settings-save-mode">
+                        <h3>{translateUI("保存方式")}</h3>
+                        <ClientStorage state={state}/>
+                        {state.personal ? <>
+                          <button onClick={()=>void window.anote.openPersonalFolder().catch(report)}>{translateUI("打开本地笔记目录")}</button>
+                          <button onClick={()=>void window.anote.enterPersonal().catch(report)}>{translateUI("打开其他个人目录")}</button>
+                        </> : <>
+                          <p className="muted">{translateUI("服务器笔记保存到平台。可在“离线与备份”中开启常驻本地副本，也可另开独立的个人笔记目录。")}</p>
+                          <button onClick={()=>void window.anote.enterPersonal().catch(report)}>{translateUI("本地个人笔记")}</button>
+                        </>}
+                      </section>
                     </>
                   )}
                   <NicknameSettings

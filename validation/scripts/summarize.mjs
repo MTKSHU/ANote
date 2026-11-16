@@ -81,15 +81,14 @@ const evidence = {
   sourceHashes,
 };
 await fs.mkdir("docs", { recursive: true });
-await fs.mkdir("artifacts/reports", { recursive: true });
 await fs.writeFile(
-  "artifacts/reports/validation-evidence.json",
+  "docs/validation-evidence.json",
   JSON.stringify(evidence, null, 2) + "\n",
 );
 console.log(
   JSON.stringify({
     totalPassed: evidence.totalPassed,
     suites,
-    evidence: "artifacts/reports/validation-evidence.json",
+    evidence: "docs/validation-evidence.json",
   }),
 );

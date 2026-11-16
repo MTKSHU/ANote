@@ -1,7 +1,7 @@
 {
   "name": "anote",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.10",
   "type": "module",
   "scripts": {
     "build": "npm run build:workspace",
@@ -10,7 +10,7 @@
     "test:unit": "npm run build:packages && node --import tsx --test validation/tests/merge.test.ts",
     "test:e2e": "playwright test --config validation/playwright.config.ts",
     "sync": "node validation/scripts/sync-folder.mjs",
-    "build:packages": "tsc -p packages/document-model && tsc -p packages/sync-core && tsc -p packages/editor",
+    "build:packages": "node scripts/apply-y-tiptap-performance-patch.mjs && tsc -p packages/document-model && tsc -p packages/sync-core && tsc -p packages/editor",
     "build:validation": "npm run build:packages && tsc -p validation/tsconfig.server.json && tsc -p validation/tsconfig.web.json && vite build --config validation/vite.config.ts",
     "build:desktop": "npm run build:packages && tsc -p apps/desktop/tsconfig.json && vite build --config apps/desktop/vite.config.ts && node scripts/build-desktop.mjs",
     "test:desktop": "playwright test --config apps/desktop/playwright.config.ts"
@@ -45,6 +45,7 @@
     "three": "0.186.1",
     "y-indexeddb": "9.0.12",
     "yjs": "^13.6.27",
+    "@tiptap/extension-paragraph": "3.32.0",
     "@anote/i18n": "0.1.0"
   },
   "devDependencies": {

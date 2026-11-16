@@ -13,7 +13,7 @@ test('历史编辑者持久化、自动快照恢复及事务失败不产生虚�
   await admin.query(`CREATE DATABASE "${name}"`);
   try {
     const url=new URL('postgres://anote@db/'+name);url.password=process.env.DB_PASSWORD;process.env.DATABASE_URL=url.href;
-    const database=await import('../../apps/api/dist/database.js');db=database.db;await database.migrate();
+    const database=await import('../../apps/api/dist/database.js');db=database.db;await database.migrate();await import('../../apps/api/dist/teams.js');
     const {Documents}=await import('../../apps/api/dist/documents.js');
     await db.query("INSERT INTO users(id,username,name,password_hash) VALUES('a','a','协作甲','fixture'),('b','b','协作乙','fixture')");
     await db.query("INSERT INTO spaces(id,name,kind,created_by) VALUES('book','历史资料','personal','a')");

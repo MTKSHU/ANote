@@ -29,6 +29,10 @@ test('双图独立裁切：Alpha 不透出另一张图，半透明与棋盘格�
   const rect=(await canvas.boundingBox())!;
   await page.mouse.move(rect.x+1,rect.y+50);await page.mouse.down();await page.mouse.up();await expect.poll(async()=>Number(await canvas.getAttribute('aria-valuenow'))).toBeLessThan(1);let pixels=await sample(canvas);expect(pixels.before[1]).toBeGreaterThan(15);
   await page.mouse.move(rect.x+rect.width-1,rect.y+50);await page.mouse.down();await page.mouse.up();await expect.poll(async()=>Number(await canvas.getAttribute('aria-valuenow'))).toBeGreaterThan(99);pixels=await sample(canvas);expect(pixels.transparent.slice(0,3)).toEqual([255,0,0]);
+  await comparison.getByRole('button',{name:'上下对比',exact:true}).click();await comparison.getByRole('button',{name:'复位',exact:true}).click();
+  const verticalPNG=await canvas.screenshot({path:'artifacts/web/alpha-comparison-vertical-dark.png',animations:'disabled'});
+  const vertical=await page.evaluate(async base64=>{const image=new Image();image.src='data:image/png;base64,'+base64;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d')!;context.drawImage(image,0,0);return [.25,.75].map(y=>[...context.getImageData(Math.floor(image.width*.25),Math.floor(image.height*y),1,1).data]);},verticalPNG.toString('base64'));
+  expect(vertical[0].slice(0,3)).toEqual([255,0,0]);expect(Math.abs(vertical[1][0]-vertical[1][1])).toBeLessThan(25);expect(vertical[1][2]).toBeGreaterThan(vertical[1][0]+70);
   await comparison.getByRole('button',{name:'放大对比图片',exact:true}).click();await expect(comparison.locator('.comparison-controls')).toContainText('125%');
   expect((await api(request,'GET',`documents/${note.id}`,undefined,owner)).hash).toBe(hash);
   const src=await comparison.locator('img').last().getAttribute('src');expect((await page.request.get(src!)).ok()).toBe(true);expect((await (await page.request.get(src!)).body()).equals(Buffer.from(images.after,'base64'))).toBe(true);

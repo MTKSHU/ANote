@@ -29,3 +29,13 @@ artifacts/
 *.db
 .DS_Store
 docs/*evidence*.json
+
+# Private backups, signing profiles and local publication records
+*.dump
+*.mobileprovision
+*.apk
+*.hap
+*.ipa
+.netrc
+.ssh/
+docs/*deployment*.json

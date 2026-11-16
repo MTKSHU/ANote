@@ -4,6 +4,29 @@ import {
   relativePositionToAbsolutePosition,
 } from "@tiptap/y-tiptap";
 import { schema } from "./model.js";
+
+type ProseProjection = ReturnType<typeof initProseMirrorDoc>;
+const projections = new WeakMap<Y.Doc, { value: ProseProjection | null }>();
+function projection(document: Y.Doc): ProseProjection {
+  if (document.isDestroyed) throw new Error("Cannot project a destroyed document");
+  let cached = projections.get(document);
+  if (!cached) {
+    const entry: { value: ProseProjection | null } = { value: null };
+    // Delete-only transactions can change positions without advancing clocks.
+    const invalidate = () => { entry.value = null; };
+    const destroy = () => {
+      invalidate();
+      projections.delete(document);
+      document.off("afterTransaction", invalidate);
+      document.off("destroy", destroy);
+    };
+    document.on("afterTransaction", invalidate);
+    document.on("destroy", destroy);
+    projections.set(document, entry);
+    cached = entry;
+  }
+  return cached.value ?? (cached.value = initProseMirrorDoc(document.getXmlFragment("default"), schema));
+}
 export function plain(text: Y.XmlText): string {
   return text
     .toDelta()
@@ -73,51 +96,41 @@ export function resolveAnchor(
         orphaned: false,
       };
     }
-    const a = Y.createAbsolutePositionFromRelativePosition(
-        Y.createRelativePositionFromJSON(anchor.from),
+    const relativeFrom = Y.createRelativePositionFromJSON(anchor.from),
+      relativeTo = Y.createRelativePositionFromJSON(anchor.to),
+      a = Y.createAbsolutePositionFromRelativePosition(
+        relativeFrom,
         doc,
       ),
       b = Y.createAbsolutePositionFromRelativePosition(
-        Y.createRelativePositionFromJSON(anchor.to),
+        relativeTo,
         doc,
       );
-    if (
-      !a ||
-      !b ||
-      !(a.type instanceof Y.XmlText) ||
-      !(b.type instanceof Y.XmlText)
-    )
-      return { text: "", orphaned: true };
-    if (a.type !== b.type) {
-      const fragment = doc.getXmlFragment("default"),
-        { doc: prose, meta } = initProseMirrorDoc(fragment, schema),
-        start = relativePositionToAbsolutePosition(
-          doc,
-          fragment,
-          Y.createRelativePositionFromJSON(anchor.from),
-          meta.mapping,
-        ),
-        end = relativePositionToAbsolutePosition(
-          doc,
-          fragment,
-          Y.createRelativePositionFromJSON(anchor.to),
-          meta.mapping,
-        );
-      if (start === null || end === null || end <= start)
-        return { text: "", orphaned: true };
+    // Preserve the common same-text path and its text-local start/end values.
+    // Structural edits can replace that XmlText while keeping the anchor's
+    // original IDs in the library's synchronized position-migration history.
+    if (a && b && a.type instanceof Y.XmlText && b.type === a.type && b.index > a.index) {
       return {
-        text: prose.textBetween(start, end, "\n"),
+        text: plain(a.type).slice(a.index, b.index),
         orphaned: false,
-        start,
-        end,
+        start: a.index,
+        end: b.index,
       };
     }
-    if (b.index <= a.index) return { text: "", orphaned: true };
+    // A dead/collapsed raw XML position is not yet proof of deletion. Use the
+    // public resolver to follow existing migrations; do not disable migration
+    // or rewrite the persisted anchor identities.
+    const fragment = doc.getXmlFragment("default"),
+      { doc: prose, meta } = projection(doc),
+      start = relativePositionToAbsolutePosition(doc, fragment, relativeFrom, meta.mapping),
+      end = relativePositionToAbsolutePosition(doc, fragment, relativeTo, meta.mapping);
+    if (start === null || end === null || end <= start)
+      return { text: "", orphaned: true };
     return {
-      text: plain(a.type).slice(a.index, b.index),
+      text: prose.textBetween(start, end, "\n"),
       orphaned: false,
-      start: a.index,
-      end: b.index,
+      start,
+      end,
     };
   } catch {
     return { text: "", orphaned: true };

@@ -11,7 +11,9 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 COPY apps/web ./apps/web
 COPY apps/desktop/renderer ./apps/desktop/renderer
-RUN npm run build:workspace
+COPY scripts/apply-y-tiptap-performance-patch.mjs ./scripts/apply-y-tiptap-performance-patch.mjs
+COPY patches ./patches
+RUN NODE_OPTIONS=--max-old-space-size=1400 GOMAXPROCS=2 UV_THREADPOOL_SIZE=2 npm run build:workspace
 ENV NODE_ENV=production
 RUN mkdir -p /data/resources/originals /data/resources/uploads /data/resources/derived && chown -R node:node /data/resources
 EXPOSE 3000

@@ -87,7 +87,7 @@ test("知识库列表、嵌套目录树、笔记移动与首页检索形成完�
           .folder_id,
     )
     .toBe(root.id);
-  await page.getByRole("button", { name: "ANote", exact: true }).click();
+  await page.getByRole("button", { name: "简单笔记", exact: true }).click();
   await page.getByLabel("搜索笔记", { exact: true }).fill("最终结论");
   await expect(
     page.locator(".note-table-row").filter({ hasText: name }),

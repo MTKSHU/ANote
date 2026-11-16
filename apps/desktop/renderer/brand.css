@@ -1,0 +1,5 @@
+.anote-logo { display:block; flex:none; object-fit:contain; }
+.academic-workspace .academic-brand > .brand-logo-frame,
+.desktop-brand > .brand-logo-frame,
+.connect-screen .connect-card .connect-brand { background:transparent; }
+.login-story .wordmark { display:flex; align-items:center; gap:12px; }

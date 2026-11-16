@@ -1,0 +1,55 @@
+plugins { id 'com.android.application' }
+
+def previewOrigin = providers.gradleProperty('previewOrigin').getOrElse('')
+def previewHost = previewOrigin ? new URI(previewOrigin).host : ''
+if (previewOrigin && (!previewHost || !(new URI(previewOrigin).scheme in ['http', 'https']) || new URI(previewOrigin).userInfo || new URI(previewOrigin).query || new URI(previewOrigin).fragment || !(new URI(previewOrigin).path in ['', '/']))) {
+    throw new GradleException('previewOrigin must be a single HTTP(S) origin without path or credentials')
+}
+android {
+    namespace 'cn.anote.mobile'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'cn.anote.mobile'
+        minSdk 26
+        targetSdk 35
+        versionCode 510
+        versionName '0.5.10'
+        buildConfigField 'String', 'PREVIEW_ORIGIN', '""'
+        manifestPlaceholders = [cleartextTraffic: 'false']
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.preview'
+            resValue 'string', 'app_name', 'ANote 预览'
+            buildConfigField 'String', 'PREVIEW_ORIGIN', '"' + previewOrigin + '"'
+        }
+        release {
+            minifyEnabled false
+            resValue 'string', 'app_name', 'ANote'
+        }
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions { unitTests.returnDefaultValues = false }
+    lint { abortOnError true }
+}
+dependencies { testImplementation 'junit:junit:4.13.2' }
+
+// Cleartext is limited to the one preview host selected by the build operator.
+// Release never includes this resource and never accepts HTTP in OriginPolicy.
+tasks.register('generatePreviewNetworkPolicy') {
+    def output = file('build/generated/preview-policy/xml/network_security_config.xml')
+    outputs.file(output)
+    inputs.property('previewHost', previewHost)
+    doLast {
+        output.parentFile.mkdirs()
+        def escapedHost = previewHost.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        def domain = new URI(previewOrigin ?: 'https://unused.invalid').scheme == 'http' ? "<domain-config cleartextTrafficPermitted=\"true\"><domain includeSubdomains=\"false\">${escapedHost}</domain></domain-config>" : ''
+        output.text = "<?xml version=\"1.0\" encoding=\"utf-8\"?><network-security-config><base-config cleartextTrafficPermitted=\"false\"/>${domain}</network-security-config>"
+    }
+}
+android.sourceSets.debug.res.srcDir 'build/generated/preview-policy'
+tasks.matching { it.name == 'preDebugBuild' }.configureEach { dependsOn 'generatePreviewNetworkPolicy' }

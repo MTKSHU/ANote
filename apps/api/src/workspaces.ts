@@ -120,6 +120,19 @@ export async function updateSpace(account: User, id: string, input: any) {
     )
   ).rows[0];
 }
+export async function archiveSpace(account:User,id:string,input:any){
+  if(typeof input?.archived!=="boolean"||input.revision!==undefined&&!/^\d+$/.test(String(input.revision)))fail(400,"知识库归档设置无效");
+  return transaction(async sql=>{
+    const current=(await sql.query("SELECT *,effective_space_role($2,id) AS role FROM spaces WHERE id=$1 FOR UPDATE",[id,account.id])).rows[0];
+    if(!current)fail(404,"知识库不存在");
+    if(current.role!=="admin")fail(403,"仅知识库管理员可归档或恢复知识库");
+    if(current.archived===input.archived)return current;
+    if(input.revision!==undefined&&String(input.revision)!==String(current.archive_revision))fail(409,"知识库归档状态已变化，请刷新后重试");
+    const row=(await sql.query("UPDATE spaces SET archived=$2,archived_at=CASE WHEN $2 THEN now() ELSE NULL END,archived_by=CASE WHEN $2 THEN $3 ELSE NULL END,archive_revision=archive_revision+1 WHERE id=$1 RETURNING *",[id,input.archived,account.id])).rows[0];
+    await sql.query("INSERT INTO audit_events(actor,action,target,detail) VALUES($1,$2,$3,$4)",[account.id,input.archived?"space.archive":"space.restore",id,{archive_revision:row.archive_revision}]);
+    return {...row,role:current.role};
+  });
+}
 export async function members(account: User, id: string) {
   await spaceRole(account, id);
   return (

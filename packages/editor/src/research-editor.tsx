@@ -10,6 +10,11 @@ import { MathInput, MathView } from "./math-view.js";
 import { MediaView } from "./media-view.js";
 import { ParagraphFormat } from "./paragraph-format.js";
 import { BlockSelection } from "./block-controls.js";
+import { CompositionGuard } from "./composition-guard.js";
+import {HeadingFolding} from './heading-folding.js';
+import {InteractiveTable,StableTableView,TABLE_COLUMN_MIN_WIDTH} from './table-resize.js';
+export {HeadingFolding,revealHeadingSection} from './heading-folding.js';
+import {MentionPicker,type MentionLoader} from "./mention-picker.js";
 import { TextSelection } from "@tiptap/pm/state";
 import * as Y from "yjs";
 import {
@@ -18,6 +23,7 @@ import {
   relativePositionToAbsolutePosition,
 } from "@tiptap/y-tiptap";
 import { resolveAnchor } from "@anote/document-model/anchors";
+import { noteIdFromHref } from "@anote/document-model/note-links";
 import "@tiptap/starter-kit";
 import "@tiptap/extension-table";
 import {
@@ -59,6 +65,8 @@ export function useResearchEditor({
   useEffect(()=>{
     const instance=new TiptapEditor({
       extensions: [
+        CompositionGuard,
+        HeadingFolding,
         BlockSelection,
         MarkdownShortcuts,
         MathInput,
@@ -75,7 +83,7 @@ export function useResearchEditor({
               ].includes(e.name),
           )
           .map((e) =>
-            e.name === "starterKit" ? e.configure({ codeBlock: false }) : e,
+            e.name === "starterKit" ? e.configure({ codeBlock: false }) : e.name === "table" ? InteractiveTable.configure({...e.options,View:StableTableView,handleWidth:6,cellMinWidth:TABLE_COLUMN_MIN_WIDTH}) : e,
           ),
         TaskItem.extend({addNodeView(){
           const parent=this.parent!();
@@ -145,6 +153,17 @@ export function useResearchEditor({
       editable,
       editorProps: {
         attributes: { class: "research-editor", "data-testid": "editor" },
+        handleDOMEvents:{
+          click(view,event){
+            if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return false;
+            const link=event.target instanceof Element?event.target.closest("a[href]"):null;
+            if(!link||!view.dom.contains(link)||link.closest(".media-resource,.comparison"))return false;
+            const id=noteIdFromHref(link.getAttribute("href"),window.location.origin);if(!id)return false;
+            const handled=!view.dom.dispatchEvent(new CustomEvent("anote-open-note",{bubbles:true,cancelable:true,detail:{id}}));
+            if(handled){event.preventDefault();return true;}
+            return false;
+          },
+        },
         handleClick(view, _pos, event) {
           const link = (event.target as Element).closest("a[href]");
           if (
@@ -153,13 +172,16 @@ export function useResearchEditor({
             link.closest(".media-resource,.comparison")
           )
             return false;
-          event.preventDefault();
           const href = link.getAttribute("href") || "";
+          // This semantic callback receives mouseup. Internal navigation is
+          // consumed above on the real click, whose default opens the anchor.
+          if(noteIdFromHref(href,window.location.origin))return false;
+          event.preventDefault();
           if (!/^(https?:\/\/|mailto:)/i.test(href)) return true;
           if (!view.editable || event.ctrlKey || event.metaKey) {
             window.open(href, "_blank", "noopener,noreferrer");
           } else {
-            view.dom.dispatchEvent(new CustomEvent("anote-link", { detail: { href, rect: link.getBoundingClientRect().toJSON() } }));
+            view.dom.dispatchEvent(new CustomEvent("simple-notes-link", { detail: { href, rect: link.getBoundingClientRect().toJSON() } }));
           }
           return true;
         },
@@ -205,11 +227,25 @@ export function useResearchEditor({
     return ()=>{instance.view.dom.removeEventListener("compositionstart",start,true);instance.view.dom.removeEventListener("compositionend",end,true);instance.destroy();};
   },[document,provider]);
   useEffect(()=>{if(editor&&!editor.isDestroyed&&editor.isEditable!==editable)editor.setEditable(editable);},[editor,editable]);
-  useEffect(()=>{if(!editor)return;const update=()=>{editor.view.dom.dataset.taskInteractive=String(canToggleTasks);editor.view.dom.querySelectorAll<HTMLInputElement>('li[data-type="taskItem"] input[type="checkbox"]').forEach(input=>{input.disabled=!canToggleTasks;});};editor.on("transaction",update);update();return ()=>{editor.off("transaction",update);};},[editor,canToggleTasks]);
+  useEffect(()=>{
+    if(!editor)return;
+    let previousEditable:boolean|undefined;
+    const update=()=>{
+      // Each task node view applies current permissions when it is created
+      // or updated. A whole-document DOM walk is only needed when reading
+      // mode or permissions change, never for each keystroke/selection.
+      if(previousEditable===editor.isEditable)return;
+      previousEditable=editor.isEditable;
+      editor.view.dom.dataset.taskInteractive=String(canToggleTasks);
+      editor.view.dom.querySelectorAll<HTMLInputElement>('li[data-type="taskItem"] input[type="checkbox"]').forEach(input=>{input.disabled=!canToggleTasks;});
+    };
+    editor.on("update",update);update();
+    return()=>{editor.off("update",update);};
+  },[editor,canToggleTasks]);
   useEffect(()=>{provider?.awareness?.setLocalStateField("user",{...user,color:user.color||"#3669d6"});},[provider,user.name,user.color]);
   return editor;
 }
-export function ResearchEditorContent(props: React.ComponentProps<typeof EditorContent>) {
+export function ResearchEditorContent({mentionCandidates,mentionActorId,...props}: React.ComponentProps<typeof EditorContent>&{mentionCandidates?:MentionLoader;mentionActorId?:string}) {
   const [link, setLink] = useState<{ href: string; left: number; top: number } | null>(null);
   useEffect(() => {
     const editor = props.editor;
@@ -222,20 +258,20 @@ export function ResearchEditorContent(props: React.ComponentProps<typeof EditorC
     const close = () => setLink(null);
     const outside = (event: PointerEvent) => { if (!(event.target as Element).closest(".editor-link-popover")) close(); };
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
-    dom.addEventListener("anote-link", open);
+    dom.addEventListener("simple-notes-link", open);
     document.addEventListener("pointerdown", outside);
     window.addEventListener("scroll", close, true);
     window.addEventListener("keydown", escape);
     dom.addEventListener("keydown", close);
     return () => {
-      dom.removeEventListener("anote-link", open);
+      dom.removeEventListener("simple-notes-link", open);
       document.removeEventListener("pointerdown", outside);
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("keydown", escape);
       dom.removeEventListener("keydown", close);
     };
   }, [props.editor]);
-  return <><EditorContent {...props} />{props.editor && <ParagraphFormat editor={props.editor}/>} {link && createPortal(
+  return <><EditorContent {...props} />{props.editor && <ParagraphFormat editor={props.editor}/>} {props.editor&&mentionCandidates&&mentionActorId&&<MentionPicker editor={props.editor} load={mentionCandidates} actorId={mentionActorId}/>} {link && createPortal(
     <div className="editor-link-popover" role="dialog" aria-label={translateUI("链接操作")} style={{ left: link.left, top: link.top }}>
       <span title={link.href}>{link.href}</span>
       <a href={link.href} target="_blank" rel="noopener noreferrer" onClick={() => setLink(null)}>{translateUI("打开链接 ↗")}</a>

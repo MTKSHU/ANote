@@ -5,6 +5,8 @@ import { request as api, type User } from "./native";
 import { Icon } from "./icons";
 import { useDialog, DialogClose } from "./dialog";
 type Props = {
+  headerControls?:React.ReactNode;
+  headerActions?:React.ReactNode;
   user: User;
   teamId: string;
   serverURL: string;
@@ -16,24 +18,67 @@ type Props = {
   documents: any[];
   onNewLibrary: () => void;
   initialTab?: string;
+  onTabChange?: (tab: string) => void;
   onOpenNote: (id: string) => void;
   onChanged: () => Promise<void>;
   onDeleteTeam: (team: { id: string; name: string }) => void;
   onError: (e: unknown) => void;
 };
+const readableTeamNotes=(teamId:string,libraries:any[],documents:any[])=>documents.filter(note=>!note.archived&&libraries.some(library=>!library.archived&&library.team_id===teamId&&library.id===note.space_id));
+
+/** The workspace landing tab and the team management home share this body. */
+function TeamHomeContent({team,notes,onOpenNote,onManage}:{team:any;notes:any[];onOpenNote:(id:string)=>void;onManage?:()=>void}){
+  const admin=team.role==="admin"&&!!onManage,pinnedIds=[...new Set<string>([team.announcement_doc_id,...(team.pinned_note_ids||[])].filter(Boolean))].slice(0,3),pinned=pinnedIds.map(id=>notes.find(note=>note.id===id)).filter(Boolean);
+  return <>
+    <section className="team-pinned-section" aria-labelledby="team-pinned-heading">
+      <header className="team-pinned-heading">
+        <div><Icon name="pin" size={16}/><h3 id="team-pinned-heading">{translateUI("置顶笔记")}</h3>{pinned.length>0&&<span className="team-pinned-count">{pinned.length}{translateUI(" 篇")}</span>}</div>
+        {admin&&<button type="button" onClick={onManage}>{translateUI("管理置顶")}<Icon name="chevron" size={14}/></button>}
+      </header>
+      <div className="team-pinned">
+        {pinned.map(note=><button type="button" className="pinned-note-card" key={note.id} title={note.title} onClick={()=>onOpenNote(note.id)}>
+          <span className="pinned-note-topline" aria-hidden="true"><span className="pinned-note-icon"><Icon name="file" size={18}/></span>{note.id===team.announcement_doc_id?<span className="pinned-note-announcement">{translateUI("团队公告")}</span>:<Icon name="pin" size={14}/>}</span>
+          <span className="pinned-note-content"><strong><span>{note.title}</span></strong><span className="pinned-note-excerpt">{team.pinned_note_summaries?.find((summary:any)=>summary.id===note.id)?.excerpt||translateUI("暂无正文内容")}</span></span>
+          <span className="pinned-note-footer"><small title={note.space_name}><Icon name="book" size={13}/><span>{note.space_name}</span></small><span className="pinned-note-open" aria-hidden="true"><Icon name="chevron" size={16}/></span></span>
+        </button>)}
+        {!pinned.length&&<div className="team-pinned-empty"><span className="pinned-note-icon"><Icon name="pin" size={20}/></span><div><strong>{translateUI("还没有置顶笔记")}</strong><p>{admin?translateUI("在团队设置中选择欢迎词、规范或教程，方便成员快速找到。"):translateUI("团队的重要笔记会显示在这里。")}</p></div></div>}
+      </div>
+    </section>
+    <h3>{translateUI("最近更新")}</h3>
+    <div className="team-recent" aria-label={translateUI("团队最近更新")}>{notes.slice(0,10).map(note=><button key={note.id} onClick={()=>onOpenNote(note.id)}><span>{note.title}</span><small>{new Date(note.updated_at).toLocaleDateString(uiLocale())}</small></button>)}</div>
+    {!notes.length&&<p className="muted">{translateUI("暂无可访问的笔记")}</p>}
+  </>;
+}
+
+export function TeamHome({teamId,cachedTeam,offline,libraries,documents,onOpenNote,onManage,onError}:{teamId:string;cachedTeam?:any;offline:boolean;libraries:any[];documents:any[];onOpenNote:(id:string)=>void;onManage:()=>void;onError:(error:unknown)=>void}){
+  const [team,setTeam]=useState<any>(null),[failed,setFailed]=useState(false);
+  useEffect(()=>{
+    let current=true;setTeam(null);setFailed(false);
+    if(offline)return()=>{current=false;};
+    void api("teams/"+teamId).then(value=>{if(current)setTeam(value);}).catch(error=>{if(current){setFailed(true);onError(error);}});
+    return()=>{current=false;};
+  },[teamId,offline]);
+  const source=offline?cachedTeam:team,current=source?.id===teamId?source:null;
+  return <section className="team-home-content" aria-label={translateUI("团队首页内容")}>
+    {!current?<p role="status">{offline?translateUI("此团队尚无本地副本"):failed?translateUI("团队首页暂不可用"):translateUI("正在打开团队首页…")}</p>:current.archived?<p className="team-notice">{translateUI("此团队已归档，知识库和外部分享暂不可访问。")}</p>:<TeamHomeContent team={current} notes={readableTeamNotes(teamId,libraries,documents)} onOpenNote={onOpenNote} onManage={offline?undefined:onManage}/>}
+  </section>;
+}
+
 export function TeamsHub({
+  headerControls,
+  headerActions,
   user,
   teamId,
   serverURL,
   onSelect,
   onOpenLibrary,
-  librariesContent, libraryViewControls, libraries, documents, onNewLibrary, initialTab = "home",
+  librariesContent, libraryViewControls, libraries, documents, onNewLibrary, initialTab = "home", onTabChange,
   onOpenNote,
   onChanged,
   onDeleteTeam,
   onError,
 }: Props) {
-  const viewKey = `anote:team-view:${serverURL}:${user.id}`;
+  const viewKey = `simple-notes:team-view:${serverURL}:${user.id}`;
   const [view, setView] = useState<"cards" | "list">(() => {
     try { return localStorage.getItem(viewKey) === "list" ? "list" : "cards"; } catch { return "cards"; }
   });
@@ -53,7 +98,8 @@ export function TeamsHub({
     [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "error">("idle"),
     [inviting, setInviting] = useState(false),
     [busy, setBusy] = useState(false),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [pinQuery,setPinQuery]=useState("");
   const inviteInput = useRef<HTMLInputElement>(null);
   const copyContext = useRef({teamId, invite});
   copyContext.current = {teamId, invite};
@@ -91,6 +137,7 @@ export function TeamsHub({
     setTeam(null);
     setTab(initialTab);
     setInvite("");
+    setPinQuery("");
     setCreating(false);
     void refresh().catch(onError);
   }, [teamId]);
@@ -111,9 +158,10 @@ export function TeamsHub({
     return (
       <div className="academic-browser team-hub">
         <header className="team-heading">
-          <div>
+          <div className="compact-page-heading">{headerControls}<div>
             <h1>{translateUI("我的团队")}</h1>
-          </div>
+          </div></div>
+          <div className="workspace-header-actions">
           <div className="team-header-actions">
           <div className="team-view-controls" role="group" aria-label={translateUI("团队显示方式")}>
             <button aria-label={translateUI("卡片视图")} aria-pressed={view === "cards"} onClick={() => chooseView("cards")}><Icon name="table" />{translateUI("卡片")}</button>
@@ -127,6 +175,8 @@ export function TeamsHub({
               setDescription("");
             }}
           >{translateUI("创建团队 ")}</button>
+          </div>
+          {headerActions}
           </div>
         </header>
         {creating && (
@@ -200,20 +250,24 @@ export function TeamsHub({
   if (!team)
     return (
       <div className="academic-browser">
+        <header className="academic-page-header"><div className="compact-page-heading">{headerControls}<h1>{translateUI("团队")}</h1></div><div className="workspace-header-actions">{headerActions}</div></header>
         <p>{translateUI("正在打开团队…")}</p>
       </div>
     );
   const admin = team.role === "admin";
-  const notes = documents.filter(n => !n.archived && libraries.some(l => l.team_id === teamId && l.id === n.space_id));
-  const pinnedIds = new Set([team.announcement_doc_id,...(team.pinned_note_ids || [])]);
-  const pinned = notes.filter(n => pinnedIds.has(n.id));
+  const notes = readableTeamNotes(teamId,libraries,documents);
+  const pinnedIds = [...new Set<string>([team.announcement_doc_id,...(team.pinned_note_ids || [])].filter(Boolean))].slice(0,3);
+  const pinned = pinnedIds.map(id=>notes.find(note=>note.id===id)).filter(Boolean);
+  const pinTerms=pinQuery.normalize("NFKC").trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const pinMatches=pinTerms.length?notes.filter(note=>!pinnedIds.includes(note.id)&&pinTerms.every(term=>(note.title+" "+(note.space_name||"")).normalize("NFKC").toLocaleLowerCase().includes(term))).slice(0,8):[];
   return (
     <div className="academic-browser team-hub">
       <header className="team-heading">
-        <div>
+        <div className="compact-page-heading">{headerControls}<div>
           <h1>{team.name}</h1>
           {team.description && <p className="muted">{team.description}</p>}
-        </div>
+        </div></div>
+        <div className="workspace-header-actions">{headerActions}</div>
       </header>
       <nav className="management-tabs">
         {[
@@ -225,7 +279,7 @@ export function TeamsHub({
           <button
             key={key}
             className={tab === key ? "active" : ""}
-            onClick={() => { setTab(key); history.replaceState(null,"",`/?team=${teamId}${key === "home" ? "" : "&view="+key}`); }}
+            onClick={() => { setTab(key); onTabChange?.(key); }}
           >
             {label}
           </button>
@@ -249,16 +303,7 @@ export function TeamsHub({
         </header>
         {librariesContent}
       </section>}
-      {tab === "home" && !team.archived && <>
-        <h3>{translateUI("置顶笔记")}</h3>
-        <div className="team-recent team-pinned">
-          {pinned.map(note => <button key={note.id} onClick={() => onOpenNote(note.id)}><span><Icon name="pin" size={16} /> {note.title}</span><small>{note.space_name}</small></button>)}
-          {!pinned.length && <p className="muted">{translateUI("管理员可在设置中选择欢迎词、教程等置顶笔记。")}</p>}
-        </div>
-        <h3>{translateUI("最近更新")}</h3>
-        <div className="team-recent">{notes.slice(0,10).map(note => <button key={note.id} onClick={() => onOpenNote(note.id)}><span>{note.title}</span><small>{new Date(note.updated_at).toLocaleDateString(uiLocale())}</small></button>)}</div>
-        {!notes.length && <p className="muted">{translateUI("暂无可访问的笔记")}</p>}
-      </>}
+      {tab === "home" && !team.archived && <TeamHomeContent team={team} notes={notes} onOpenNote={onOpenNote} onManage={()=>{setTab("settings");onTabChange?.("settings");}}/>}
       {tab === "members" && (
         <>
           <p className="muted">
@@ -277,6 +322,7 @@ export function TeamsHub({
                   const config = await api("platform/public");
                   setInvite((config.public_origin || serverURL) + result.path);
                   setInviteReusable(result.reusable);
+                  if(email.trim())setNotice(translateUI("邀请已生成；如该邮箱已在平台验证注册，对方会收到站内邀请通知。"));
                   setEmail("");
                   await refresh();
                 } catch (error) {
@@ -290,14 +336,14 @@ export function TeamsHub({
               <label>
                 <input
                   aria-label={translateUI("邀请邮箱")}
-                  placeholder={translateUI("指定邮箱（可选）")}
-                  title={translateUI("填写后仅该已验证邮箱可接受邀请")}
+                  placeholder={translateUI("注册邮箱（可选）")}
+                  title={translateUI("填写已验证的注册邮箱，对方可在消息通知中接受；也可复制定向邀请链接")}
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </label>
-              <button className="primary" disabled={inviting} aria-label={translateUI("生成邀请链接")}>{inviting ? translateUI("正在生成…") : translateUI("生成邀请链接")}</button>
+              <button className="primary" disabled={inviting} aria-label={email.trim()?translateUI("发送邀请"):translateUI("生成邀请链接")}>{inviting ? translateUI("正在生成…") : email.trim()?translateUI("发送邀请"):translateUI("生成邀请链接")}</button>
               {invite && (
                 <div className="invite-link-result">
                   <input
@@ -388,13 +434,15 @@ export function TeamsHub({
                     {item.email || translateUI("未限制邮箱")} ·{" "}
                     {item.revoked_at
                       ? translateUI("已撤销")
+                      : item.declined_at
+                        ? translateUI("已拒绝")
                       : !item.reusable && item.accepted_by
                         ? translateUI("已接受")
                         : new Date(item.expires_at).getTime() < Date.now()
                           ? translateUI("已过期")
                           : item.reusable ? translateUI("有效 · 不限人数 · 已加入 {0} 人", [item.acceptance_count]) : translateUI("待接受")}
                   </span>
-                  {!item.revoked_at && (item.reusable || !item.accepted_by) && new Date(item.expires_at).getTime() > Date.now() && (
+                  {!item.revoked_at && !item.declined_at && (item.reusable || !item.accepted_by) && new Date(item.expires_at).getTime() > Date.now() && (
                     <button
                       onClick={async () => {
                         try {
@@ -475,7 +523,12 @@ export function TeamsHub({
                 ))}
             </select>
           </label>
-          <fieldset className="team-pin-picker"><legend>{translateUI("首页置顶笔记（最多 20 篇）")}</legend><p className="muted">{translateUI("置顶不改变笔记的访问权限。")}</p>{notes.map(note => <label className="management-check" key={note.id}><input type="checkbox" checked={(team.pinned_note_ids || []).includes(note.id)} onChange={e => setTeam({...team,pinned_note_ids:e.target.checked ? [...(team.pinned_note_ids || []),note.id] : team.pinned_note_ids.filter((id: string) => id !== note.id)})} />{note.title}</label>)}</fieldset>
+          <fieldset className="team-pin-picker"><legend>{translateUI("首页置顶笔记（最多 3 篇）")}</legend><p className="muted">{translateUI("包含首页公告，已选 ")}{pinnedIds.length}{translateUI("/3 篇；置顶不改变笔记的访问权限。")}</p>
+            <div className="team-pin-search"><label htmlFor="team-pin-search">{translateUI("搜索并添加笔记")}</label><input id="team-pin-search" type="search" placeholder={translateUI("搜索笔记标题或知识库")} value={pinQuery} disabled={busy||team.archived} onChange={event=>setPinQuery(event.target.value)} maxLength={200}/>
+              {pinTerms.length>0&&<div className="team-pin-search-results" role="listbox" aria-label={translateUI("置顶笔记搜索结果")}>{pinMatches.map(note=><button type="button" role="option" aria-selected="false" key={note.id} disabled={busy||pinnedIds.length>=3} onClick={()=>{setTeam((current:any)=>{const ids=[...new Set([current.announcement_doc_id,...current.pinned_note_ids].filter(Boolean))];return ids.length<3?{...current,pinned_note_ids:[...current.pinned_note_ids,note.id]}:current;});setPinQuery("");}}><span>{note.title}</span><small>{note.space_name}</small></button>)}{!pinMatches.length&&<p className="muted">{translateUI("没有匹配的未置顶笔记")}</p>}</div>}
+            </div>
+            <ul className="team-selected-pins" aria-label={translateUI("已选置顶笔记")}>{pinned.map(note=><li key={note.id}><span><strong>{note.title}</strong><small>{note.id===team.announcement_doc_id?translateUI("首页公告 · "):""}{note.space_name}</small></span><button type="button" disabled={busy||team.archived} aria-label={translateUI("移除置顶 {0}", [note.title])} title={translateUI("移除置顶")} onClick={()=>setTeam({...team,announcement_doc_id:team.announcement_doc_id===note.id?null:team.announcement_doc_id,pinned_note_ids:(team.pinned_note_ids||[]).filter((id:string)=>id!==note.id)})}><Icon name="close" size={16}/></button></li>)}</ul>
+          </fieldset>
           <h3>{translateUI("安全与权限")}</h3>
           <label className="management-check">
             <input

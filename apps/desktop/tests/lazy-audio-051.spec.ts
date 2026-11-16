@@ -1,0 +1,52 @@
+import {test,expect,_electron,type ElectronApplication} from '@playwright/test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {createHash,randomUUID} from 'node:crypto';
+import * as Y from 'yjs';
+import {prosemirrorJSONToYDoc} from '@tiptap/y-tiptap';
+import {schema,EDITOR_SCHEMA_VERSION} from '@anote/document-model';
+import {api} from '../../web/tests/helpers';
+import {person} from '../../web/tests/mcp-helpers';
+
+let app:ElectronApplication|undefined;
+test.afterEach(async()=>{await app?.close().catch(()=>{});app=undefined;});
+const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
+const targetVersion=process.env.ANOTE_TEST_VERSION||'0.5.1',artifactRoot=path.resolve(process.env.ANOTE_TEST_ARTIFACT_ROOT||'artifacts/preview-051/desktop'),publicOrigin=process.env.PREVIEW_PUBLIC_ORIGIN||'http://127.0.0.1:3160';
+test(`真实${targetVersion}包按需显示图片，离线副本可播放音频并保持正文`,async({request})=>{
+  const origin=process.env.BASE_URL||'http://anote.internal:3000';
+  expect(origin).toBe('http://anote.internal:3000');
+  expect((await request.get('/api/platform/public').then(response=>response.json())).public_origin).toBe(publicOrigin);
+  const owner=await person(request),book=await api(request,'POST','spaces',{kind:'personal',name:'离线媒体验证'},owner),note=await api(request,'POST','documents',{space_id:book.id,title:'离线录音与按需图片'},owner);
+  async function upload(filename:string,bytes:Buffer){const task=await api(request,'POST','uploads',{space_id:book.id,doc_id:note.id,filename,bytes:bytes.length,hash:hash(bytes)},owner);const response=await request.put(`/api/uploads/${task.id}/chunk`,{headers:{Authorization:'Bearer '+owner.token,'Content-Type':'application/octet-stream','Upload-Offset':'0','X-Chunk-SHA256':hash(bytes)},data:bytes});expect(response.status(),await response.text()).toBe(200);return api(request,'POST',`uploads/${task.id}/complete`,{},owner);}
+  const wav=Buffer.alloc(96044);wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(16000,24);wav.writeUInt32LE(32000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
+  const audio=await upload('离线录音.wav',wav),images=[];expect(audio.kind).toBe('audio');
+  for(let index=0;index<12;index++)images.push(await upload(`离线图片-${index}.svg`,Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#bfdbfe"/><text x="20" y="30">Image ${index}</text></svg>`)));
+  const paragraph=(text:string)=>({type:'paragraph',attrs:{blockId:randomUUID()},content:[{type:'text',text}]}),media=(asset:any)=>({type:'mediaResource',attrs:{blockId:randomUUID(),assetId:asset.id,src:asset.url,localPath:`assets/${asset.id}${path.extname(asset.filename)}`,title:asset.filename,kind:asset.kind,mime:asset.mime,bytes:asset.bytes,hash:asset.hash}});
+  const document=prosemirrorJSONToYDoc(schema,{type:'doc',content:[media(audio),...Array.from({length:60},(_,index)=>paragraph('先阅读正文 '+index)),...images.map(media),paragraph('阅读结束')]},'default');
+  try{await api(request,'POST',`documents/${note.id}/offline-sync`,{schema:EDITOR_SCHEMA_VERSION,opId:randomUUID(),ystate:Buffer.from(Y.encodeStateAsUpdate(document)).toString('base64')},owner);}finally{document.destroy();}
+  const sourceSnapshot=(await api(request,'GET',`documents/${note.id}`,undefined,owner)).snapshot;
+  const directory=path.join(artifactRoot,'media-profiles',randomUUID()),executable=path.resolve(process.env.DESKTOP_EXECUTABLE||path.join(artifactRoot,'releases/ANote-linux-x64/ANote')),asar=path.join(path.dirname(executable),'resources/app.asar'),before=hash(await fs.readFile(asar));
+  await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'settings.json'),JSON.stringify({serverURL:origin}));
+  app=await _electron.launch({executablePath:executable,args:['--no-sandbox','--password-store=basic','--document='+note.id],env:{...process.env,ANOTE_CLIENT_DATA_DIR:directory,ANOTE_DESKTOP_TEST:'1'}});
+  expect(await app.evaluate(({app})=>({packaged:app.isPackaged,version:app.getVersion()}))).toEqual({packaged:true,version:targetVersion});
+  const page=await app.firstWindow(),requested=new Set<string>();page.on('request',request=>{if(request.method()==='GET'&&images.some(asset=>new URL(request.url()).pathname===asset.url))requested.add(new URL(request.url()).pathname);});
+  await page.getByRole('button',{name:'连接服务器',exact:true}).click();await page.getByLabel('服务地址',{exact:true}).fill(origin);await page.getByLabel('用户名',{exact:true}).fill(owner.username);await page.getByLabel('密码',{exact:true}).fill(owner.password);await page.getByRole('button',{name:'登录并连接',exact:true}).click();
+  const editor=page.getByTestId('editor');await expect(editor).toContainText('先阅读正文 0');await expect(editor.getByRole('group',{name:'音频播放控件',exact:true})).toBeVisible();expect(requested.size).toBe(0);
+  const hydratedSnapshot=await editor.evaluate(element=>(element as any).editor.getJSON());
+  await expect.poll(async()=>(await api(request,'GET',`documents/${note.id}`,undefined,owner)).snapshot).toEqual(hydratedSnapshot);
+  const sourceSnapshotSha256=hash(Buffer.from(JSON.stringify(sourceSnapshot))),hydratedSnapshotSha256=hash(Buffer.from(JSON.stringify(hydratedSnapshot)));
+  await fs.writeFile(path.join(artifactRoot,'media-initial-hydration.json'),JSON.stringify({asarSha256:before,sourceSnapshotSha256,hydratedSnapshotSha256,initialHydrationChanged:sourceSnapshotSha256!==hydratedSnapshotSha256,sourceSnapshot,hydratedSnapshot},null,2)+'\n');
+  await page.evaluate(id=>window.anote.configureOffline!({enabled:true,scope:'selected',libraryIds:[id],includeAssets:true,backupIntervalMinutes:0}),book.id);
+  await expect.poll(()=>page.evaluate(()=>window.anote.offlineStatus!().then(value=>value.complete&&!value.running&&value.assets===13)),{timeout:60000}).toBe(true);
+  await page.evaluate(()=>window.anote.offline(true));
+  const player=editor.locator('audio'),controls=editor.getByRole('group',{name:'音频播放控件',exact:true});await expect(player).toBeHidden();await controls.getByRole('button',{name:'播放音频',exact:true}).click();
+  await expect.poll(()=>player.evaluate(element=>({duration:(element as HTMLAudioElement).duration,paused:(element as HTMLAudioElement).paused}))).toEqual({duration:3,paused:false});await controls.getByRole('button',{name:'暂停音频',exact:true}).click();
+  await expect(controls).toHaveAttribute('title','离线录音.wav');await expect(editor.locator('.inline-audio-heading')).toHaveCount(0);await expect(editor.getByRole('button',{name:'展开音频播放器'})).toHaveCount(0);await expect(editor.getByRole('link',{name:'下载音频 离线录音.wav'})).toHaveCount(0);
+  await page.screenshot({path:path.join(artifactRoot,'inline-audio.png'),animations:'disabled'});
+  await controls.dblclick();await expect(page.getByRole('dialog',{name:'媒体预览',exact:true}).getByLabel('音频播放器',{exact:true})).toBeVisible();await expect(player).toHaveJSProperty('paused',true);await page.keyboard.press('Escape');
+  const first=editor.locator('.media-resource[data-media-kind="image"]').first();await first.scrollIntoViewIfNeeded();await expect(first.locator('img')).toHaveJSProperty('naturalWidth',640);expect(requested.size).toBeGreaterThan(0);expect(requested.size).toBeLessThan(12);
+  await page.screenshot({path:path.join(artifactRoot,'offline-media.png'),animations:'disabled'});
+  expect(await editor.evaluate(element=>(element as any).editor.getJSON())).toEqual(hydratedSnapshot);
+  const snapshot=await page.evaluate(async id=>fetch('/api/documents/'+id).then(response=>response.json()).then(value=>value.snapshot),note.id);expect(snapshot).toEqual(hydratedSnapshot);expect(hash(await fs.readFile(asar))).toBe(before);
+  await fs.writeFile(path.join(artifactRoot,'media-native-evidence.json'),JSON.stringify({recordedAt:new Date().toISOString(),version:targetVersion,packaged:true,asarSha256:before,offlineAssets:13,audio:{mime:audio.mime,bytes:wav.length,duration:3,playedOffline:true,titleTooltip:true,doubleClickExpanded:true},images:{total:12,requestedAfterFirstImage:requested.size,lazyLoaded:true},sourceSnapshotSha256,hydratedSnapshotSha256,noteBodyUnmodifiedByMedia:true},null,2)+'\n');
+});

@@ -7,6 +7,7 @@ import {db,digest} from "./database.js";
 import {documentRole,spaceRole,readableDocumentSQL} from "./auth.js";
 import * as workspace from "./workspaces.js";
 import {assetFor,assetView,localAssetPath} from "./assets.js";
+import {normalizeSvgAsset} from "./storage.js";
 import {mcpOrigin,requireScope,type McpIdentity} from "./mcp-auth.js";
 import {noteHash,editBlocks,validateRichDocument,changeDiff,editorRules} from "./mcp-model.js";
 import {staged,promoteUpload,beginUpload,completeUpload,uploadStatus,cancelUpload,importChatFile,readAsset} from "./mcp-files.js";
@@ -15,7 +16,7 @@ import {fail,identifier,text} from "./errors.js";
 
 function page(input:any){const offset=input.offset??0,limit=input.limit??20;if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>50)fail(400,"分页位置或大小无效");return {offset,limit};}
 type AssetPlan={kind:"existing"|"copy"|"upload";id:string;source_id:string;hash:string};
-const MEDIA_LAYOUT_PLAN_VERSION=1;
+const MEDIA_LAYOUT_PLAN_VERSION=2;
 const hasMedia=(node:RichNode):boolean=>node.type==="mediaResource"||!!node.content?.some(hasMedia);
 export class McpService {
   constructor(private documents:Documents){}
@@ -38,7 +39,8 @@ export class McpService {
     async function walk(node:RichNode){
       if(node.type==="mediaResource"){
         const row=await resolve(node.attrs?.assetId),a=node.attrs||{};
-        node.attrs={blockId:a.blockId,assetId:row.id,src:row.src,localPath:row.localPath,title:typeof a.title==="string"?a.title.slice(0,1000):row.filename,kind:row.kind,mime:row.mime,bytes:Number(row.bytes),hash:row.hash,widthPercent:a.widthPercent??null,alignment:a.alignment??"center"};
+        if(a.projection==="equirectangular"&&!["image","video"].includes(row.kind))fail(400,"360° 全景附件必须是图片或视频");
+        node.attrs={blockId:a.blockId,assetId:row.id,src:row.src,localPath:row.localPath,title:typeof a.title==="string"?a.title.slice(0,1000):row.filename,kind:row.kind,mime:row.mime,bytes:Number(row.bytes),hash:row.hash,widthPercent:a.widthPercent??null,alignment:a.alignment??"center",projection:a.projection??"flat"};
       }
       if(node.type==="imageComparison"){
         if(!Array.isArray(node.attrs?.images))fail(400,"图片对比内容无效");
@@ -49,7 +51,7 @@ export class McpService {
     await walk(value);return plans;
   }
   async prepare(identity:McpIdentity,input:any){
-    requireScope(identity,"notes:write");if(input.schema_version!==EDITOR_SCHEMA_VERSION)fail(409,"请先获取编辑规则并使用当前格式版本");
+    requireScope(identity,"notes:write");if(input.schema_version!==EDITOR_SCHEMA_VERSION)fail(409,`当前编辑格式为 schema ${EDITOR_SCHEMA_VERSION}，请调用 get_editor_rules 后重新读取并生成预览`);
     let before:any,space:string,doc:string|null=null,folder:string|null=null;
     if(input.note_id){
       doc=identifier(input.note_id);await documentRole(identity.account,doc,"edit");before=await this.documents.get(identity.account,doc);space=before.space_id;folder=before.folder_id;
@@ -118,7 +120,7 @@ export class McpService {
     }
     if(name==="read_note"){
       requireScope(identity,"notes:read");const note=await this.documents.get(identity.account,identifier(input.note_id)),{offset,limit}=page(input);
-      return {note_id:note.id,title:note.title,tags:note.tags,library_id:note.space_id,folder_id:note.folder_id,role:note.role,archived:note.archived,schema_version:EDITOR_SCHEMA_VERSION,base_hash:noteHash(note),outline:note.snapshot.content.slice(0,1000).map((n:RichNode)=>({block_id:blockId(n),type:n.type,text:textOf(n).slice(0,120)})),blocks:note.snapshot.content.slice(offset,offset+limit),next_offset:note.snapshot.content.length>offset+limit?offset+limit:null};
+      return {note_id:note.id,title:note.title,tags:note.tags,updated_at:note.updated_at,last_editors:note.last_editors,library_id:note.space_id,folder_id:note.folder_id,role:note.role,archived:note.archived,library_archived:!!note.library_archived,schema_version:EDITOR_SCHEMA_VERSION,base_hash:noteHash(note),outline:note.snapshot.content.slice(0,1000).map((n:RichNode)=>({block_id:blockId(n),type:n.type,text:textOf(n).slice(0,120)})),blocks:note.snapshot.content.slice(offset,offset+limit),next_offset:note.snapshot.content.length>offset+limit?offset+limit:null};
     }
     if(name==="prepare_note_move"){
       requireScope(identity,"notes:write");const docId=identifier(input.note_id),plan=await this.documents.previewMove(identity.account,docId,input),id=randomUUID();
@@ -135,7 +137,7 @@ export class McpService {
     if(name==="search_assets"){
       requireScope(identity,"assets:read");const note=await documentRole(identity.account,identifier(input.note_id)),{offset,limit}=page(input);
       const rows=(await db.query(`SELECT a.* FROM assets a LEFT JOIN documents d ON d.id=a.owner_doc_id WHERE a.space_id=$1 AND NOT a.archived AND (a.owner_doc_id IS NULL OR ${readableDocumentSQL("d","$3","$4")}) AND (a.filename ILIKE '%'||$2||'%' OR a.title ILIKE '%'||$2||'%') ORDER BY a.created_at DESC,a.id LIMIT $5 OFFSET $6`,[note.space_id,String(input.query||"").slice(0,200),identity.account.id,identity.account.is_admin,limit+1,offset])).rows;
-      return {items:rows.slice(0,limit).map(assetView),next_offset:rows.length>limit?offset+limit:null};
+      return {items:await Promise.all(rows.slice(0,limit).map(async row=>assetView(await normalizeSvgAsset(row)))),next_offset:rows.length>limit?offset+limit:null};
     }
     if(name==="read_asset")return readAsset(identity,identifier(input.asset_id));
     if(name==="prepare_changes")return this.prepare(identity,input);

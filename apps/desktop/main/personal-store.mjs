@@ -13,6 +13,9 @@ import { schema, canonical } from "@anote/document-model";
 import { exportMarkdown, mergeMarkdown, stable } from "@anote/sync-core";
 import { moveCatalog, unwrapCatalog } from "@anote/sync-core/catalog";
 import { readJSON } from "./session-store.mjs";
+import {openPersonalDirectory} from "./personal-directory.mjs";
+import {isSvgImagePrefix,SVG_MIME} from "@anote/document-model/svg";
+import {normalizeSvgAsset} from "./svg-assets.mjs";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const uid = (value) =>
   typeof value === "string" && /^[a-f0-9-]{36}$/i.test(value);
@@ -66,30 +69,8 @@ export class PersonalStore {
     await fs.rename(temporary, file);
   }
   async load() {
-    this.directory = await fs.realpath(this.directory);
-    this.root = path.join(this.directory, ".anote");
-    await this.safe("");
-    await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
-    const lockPath = await this.safe("lock.json");
-    try {
-      const handle = await fs.open(lockPath, "wx", 0o600);
-      await handle.writeFile(
-        JSON.stringify({ pid: process.pid, token: this.lock }),
-      );
-      await handle.close();
-    } catch (e) {
-      if (e.code !== "EEXIST") throw e;
-      const previous = await readJSON(lockPath, {});
-      let alive = true;
-      try {
-        process.kill(previous.pid, 0);
-      } catch (error) {
-        if (error.code === "ESRCH") alive = false;
-      }
-      if (alive) fail(409, "此个人笔记目录已被另一客户端打开");
-      await fs.unlink(lockPath);
-      return this.load();
-    }
+    const opened=await openPersonalDirectory(this.directory,this.lock);
+    this.directory=opened.directory;this.root=opened.root;
     try {
       for (const folder of [
         "assets",
@@ -106,7 +87,7 @@ export class PersonalStore {
       this.index = await readJSON(await this.safe("catalog.json"), null);
       if (!this.index)
         this.index = {
-          format: "anote-personal",
+          format: "simple-notes-personal",
           version: 1,
           id: randomUUID(),
           theme: "auto",
@@ -117,8 +98,8 @@ export class PersonalStore {
           uploads: [],
         };
       if (
-        this.index.format !== "anote-personal" ||
-        this.index.version !== 1 ||
+        this.index.format !== "simple-notes-personal" ||
+        ![1,2].includes(this.index.version) ||
         !uid(this.index.id) ||
         ![
           this.index.spaces,
@@ -211,6 +192,7 @@ export class PersonalStore {
     if (!row) fail(404, "知识库不存在");
     return row;
   }
+  writableSpace(id){const row=this.space(id);if(row.archived)fail(409,"知识库已归档，只能阅读，请先恢复知识库后再修改");return row;}
   note(id, deleted = false) {
     const row = this.index.documents.find(
       (item) => item.id === id && (deleted || !item.deleted_at),
@@ -223,12 +205,15 @@ export class PersonalStore {
     const space = this.space(row.space_id, true);
     return {
       ...row,
-      role: "admin",
-      can_manage: true,
+      role: space.archived ? "viewer" : "admin",
+      can_manage: !space.archived,
+      library_archived: !!space.archived,
+      library_archive_revision: space.archive_revision||0,
       created_by: this.index.id,
       space_kind: "personal",
       space_name: space.name,
       author_name: this.user.name,
+      last_editors: [{name:this.user.name}],
       folder_name:
         this.index.folders.find((f) => f.id === row.folder_id)?.name || null,
       visibility: "private",
@@ -240,7 +225,8 @@ export class PersonalStore {
     if (!uid(id)) fail(400, "笔记 ID 无效");
     return readJSON(await this.safe("notes/" + id + ".json"), null);
   }
-  async saveRecord(row, record, checkpoint = false, label,versionName="") {
+  async saveRecord(row, record, checkpoint = false, label,versionName="",source) {
+    this.writableSpace(row.space_id);
     record.hash = hash(stable(record.snapshot));
     const now = Date.now();
     if (checkpoint || !record.versionAt || now - record.versionAt >= 60000) {
@@ -250,7 +236,7 @@ export class PersonalStore {
           created_at: when(),
           author_name: this.user.name,
           editors: [{ id: this.index.id, name: this.user.name }],
-          source: label === undefined ? "personal" : "checkpoint",
+          source: source || (label === undefined ? "personal" : "checkpoint"),
           label: label || "",
           version_name:versionName,
           hash: record.hash,
@@ -282,6 +268,7 @@ export class PersonalStore {
         throw e;
       });
     if (text === record.markdownText) return record;
+    if(this.space(row.space_id).archived){record.syncWarning="知识库已归档，外部 Markdown 修改保留在原文件中，恢复知识库后可继续导入。";return record;}
     let merged;
     try {
       merged = mergeMarkdown(
@@ -354,6 +341,7 @@ export class PersonalStore {
   async maintenance() {
     await this.expire();
     for (const row of this.index.documents.filter((n) => !n.deleted_at)) {
+      if(this.space(row.space_id).archived)continue;
       let record = await this.record(row.id);
       if (!record) continue;
       record = await this.absorbMarkdown(row, record);
@@ -386,6 +374,14 @@ export class PersonalStore {
       !["GET", "HEAD"].includes(method) && action !== "chunk"
         ? await request.json().catch(() => ({}))
         : {};
+    if(!["GET","HEAD"].includes(method)){
+      let library;
+      if(group==="spaces"&&id&&action!=="archive"&&action!=="sidebar-pin"&&action!=="restore-deleted")library=this.index.spaces.find(row=>row.id===id);
+      if(group==="documents")library=this.index.spaces.find(row=>row.id===(id?this.index.documents.find(note=>note.id===id)?.space_id:body.space_id));
+      if(group==="uploads"){const noteId=id?this.index.uploads.find(task=>task.id===id)?.doc_id:body.doc_id;library=this.index.spaces.find(row=>row.id===this.index.documents.find(note=>note.id===noteId)?.space_id);}
+      if(group==="assets"){const asset=this.index.assets.find(asset=>asset.id===id);library=this.index.spaces.find(row=>row.id===(asset?.space_id||this.index.documents.find(note=>note.id===asset?.doc_id)?.space_id));}
+      if(library?.archived&&!library.deleted_at)fail(409,"知识库已归档，只能阅读，请先恢复知识库后再修改");
+    }
     if (group === "platform" && id === "public")
       return { site_name: "ANote", auth_mode: "local", public_origin: "" };
     if (group === "me") {
@@ -458,6 +454,14 @@ export class PersonalStore {
         return row;
       }
       const row = this.space(id, action === "restore-deleted");
+      if(action==="archive"&&method==="PATCH"){
+        if(typeof body.archived!=="boolean")fail(400,"知识库归档设置无效");
+        if(!!row.archived!==body.archived&&body.revision!==undefined&&String(body.revision)!==String(row.archive_revision||0))fail(409,"知识库归档状态已变化，请刷新后重试");
+        if(!!row.archived!==body.archived){
+          this.index.version=2;row.archived=body.archived;row.archive_revision=(row.archive_revision||0)+1;row.archived_at=row.archived?when():null;row.archived_by=row.archived?this.index.id:null;
+        }
+        return row;
+      }
       if (action === "catalog") {
         const entries = [
           ...this.index.folders.filter(f => f.space_id === id).map(f => ({key:"folder:"+f.id,kind:"folder",id:f.id,parent_id:f.parent_id || null})),
@@ -662,7 +666,9 @@ export class PersonalStore {
         const doc = new Y.Doc();
         try {
           Y.applyUpdate(doc, Buffer.from(record.ystate, "base64"));
+          let changed=false;doc.on('update',()=>{changed=true;});
           Y.applyUpdate(doc, Buffer.from(body.ystate, "base64"));
+          if(!changed&&!doc.store.pendingStructs&&!doc.store.pendingDs)return {ok:true,hash:record.hash,unchanged:true};
           record.snapshot = canonical(
             initProseMirrorDoc(
               doc.getXmlFragment("default"),
@@ -726,17 +732,21 @@ export class PersonalStore {
       }
       if (action === "assets") {
         const values = this.index.assets.filter((a) => a.doc_id === id);
-        return values.map((a) => this.asset(a));
+        return Promise.all(values.map((a) => this.asset(a)));
       }
       if (action === "export")
         return {
           markdown: record.markdownText,
           snapshot: record.snapshot,
           hash: record.hash,
-          assets: this.index.assets
+          assets: await Promise.all(this.index.assets
             .filter((a) => a.doc_id === id)
-            .map((a) => this.asset(a)),
+            .map((a) => this.asset(a))),
         };
+      // Keep Markdown polling (including external edits), but avoid sending
+      // an unchanged CRDT and snapshot through Electron every two seconds.
+      if(!action&&method==="GET"&&url.searchParams.get("known_hash")===record.hash)
+        return {...this.metadata(row),hash:record.hash,sync_warning:record.syncWarning||"",unchanged:true};
       return {
         ...this.metadata(row),
         snapshot: record.snapshot,
@@ -846,7 +856,8 @@ export class PersonalStore {
     }
     fail(404, "个人模式不提供此团队功能");
   }
-  asset(row) {
+  async asset(row) {
+    row = await normalizeSvgAsset(row,await this.safe("assets/" + row.id));
     return {
       ...row,
       revision: 1,
@@ -861,6 +872,7 @@ export class PersonalStore {
   async file(request, url, asset) {
     const file = await this.safe("assets/" + asset.id),
       size = (await fs.stat(file)).size;
+    asset = await normalizeSvgAsset(asset,file);
     let start = 0,
       end = size - 1,
       status = 200;
@@ -931,6 +943,9 @@ function identify(header, filename) {
   } else if (prefix.startsWith("RIFF") && prefix.slice(8, 12) === "WEBP") {
     kind = "image";
     mime = "image/webp";
+  } else if (isSvgImagePrefix(prefix)) {
+    kind = "image";
+    mime = SVG_MIME;
   } else if (prefix.slice(4, 8) === "ftyp") {
     kind = ext === ".m4a" ? "audio" : "video";
     mime = kind === "audio" ? "audio/mp4" : "video/mp4";

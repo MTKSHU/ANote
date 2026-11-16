@@ -59,6 +59,9 @@ export class SessionStore {
   get profileRoot() {
     return path.join(this.root, "profiles", this.profileKey);
   }
+  get dataRoot() {
+    return this.settings.dataDirectory || this.profileRoot;
+  }
   async load() {
     this.settings = {
       ...defaults(),
@@ -66,8 +69,19 @@ export class SessionStore {
     };
     try {
       const encrypted = await fs.readFile(path.join(this.root, "session.bin"));
-      if (await this.canEncrypt())
-        this.token = await this.safeStorage.decryptStringAsync(encrypted);
+      if (await this.canEncrypt()) {
+        const decrypted = await this.safeStorage.decryptStringAsync(encrypted);
+        if (typeof decrypted?.result !== "string" || !decrypted.result || /[\r\n]/.test(decrypted.result))
+          throw new Error("登录凭据无效");
+        this.token = decrypted.result;
+        if (decrypted.shouldReEncrypt) {
+          // Rotation is best effort: a valid in-memory session must survive a
+          // temporarily unavailable key provider, keeping the previous file.
+          await this.saveCredential(this.token).catch(() => {
+            this.credentialWarning = "系统凭据存储暂不可用，本次登录已恢复";
+          });
+        }
+      }
     } catch (error) {
       if (error.code !== "ENOENT")
         this.credentialWarning = "系统凭据存储暂不可用，请重新登录";
@@ -88,6 +102,18 @@ export class SessionStore {
     )
       return false;
     return available;
+  }
+  async saveCredential(token) {
+    const encrypted = await this.safeStorage.encryptStringAsync(token);
+    const file = path.join(this.root, "session.bin");
+    const temp = file + "." + randomUUID() + ".tmp";
+    await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
+    try {
+      await fs.writeFile(temp, encrypted, { mode: 0o600, flag: "wx" });
+      await fs.rename(temp, file);
+    } finally {
+      await fs.rm(temp, { force: true });
+    }
   }
   async save() {
     const settings = structuredClone(this.settings),
@@ -151,6 +177,14 @@ export class SessionStore {
           path.join(this.root, "profiles", key, "settings.json"),
           {},
         );
+    // A crash after saving the new profile but before encrypting its token
+    // must never restore the previous account's credential beside it. Remove
+    // the old credential before changing either in-memory identity or settings.
+    // Failure to remove it aborts the switch with the previous identity intact.
+    if (!same)
+      await fs.unlink(path.join(this.root, "session.bin")).catch(error => {
+        if (error.code !== "ENOENT") throw error;
+      });
     this.token = result.token;
     this.settings = {
       ...defaults(),
@@ -161,15 +195,18 @@ export class SessionStore {
       validationMode: isLab,
     };
     await this.save();
-    if (await this.canEncrypt()) {
-      const encrypted = await this.safeStorage.encryptStringAsync(result.token);
-      await fs.writeFile(path.join(this.root, "session.bin"), encrypted, {
-        mode: 0o600,
-      });
-      this.credentialWarning = "";
-    } else {
+    try {
+      if (await this.canEncrypt()) {
+        await this.saveCredential(result.token);
+        this.credentialWarning = "";
+      } else {
+        await fs.unlink(path.join(this.root, "session.bin")).catch(() => {});
+        this.credentialWarning = "当前系统没有可用密钥库，本次会话不保存登录凭据";
+      }
+    } catch {
+      // Never leave another account's old credential beside the new profile.
       await fs.unlink(path.join(this.root, "session.bin")).catch(() => {});
-      this.credentialWarning = "当前系统没有可用密钥库，本次会话不保存登录凭据";
+      this.credentialWarning = "系统凭据存储暂不可用，本次会话不保存登录凭据";
     }
     return this.state();
   }

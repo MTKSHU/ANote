@@ -6,8 +6,8 @@ function readCollapsed(key:string) {
 }
 
 /** Each panel remembers only manual choices, independently of navigation. */
-export function useSidebarVisibility(serverURL:string,userId:string,panel:"sidebar"|"note-list"="sidebar") {
-  const prefix = panel === "sidebar" ? "anote:sidebar-collapsed:" : "anote:note-list-collapsed:";
+export function useSidebarVisibility(serverURL:string,userId:string,panel:"sidebar"|"note-list"|`group:${string}`="sidebar") {
+  const prefix = panel === "sidebar" ? "simple-notes:sidebar-collapsed:" : panel === "note-list" ? "simple-notes:note-list-collapsed:" : `simple-notes:sidebar-${panel}:`;
   const key = `${prefix}${serverURL}:${userId}`;
   const [preference,setPreference] = useState(() => ({key,collapsed:readCollapsed(key)}));
   const collapsed = preference.key === key ? preference.collapsed : readCollapsed(key);

@@ -1,0 +1,26 @@
+.my-shares { color:var(--ink); }
+.my-shares > .management-tabs { margin:12px 0 16px; }
+.shared-library-list { margin:12px 0 24px; }
+.shared-library-list h2 { font-size:14px;color:var(--muted); }
+.shared-library-list > button { display:inline-flex;gap:10px;align-items:center;justify-content:flex-start;border:1px solid var(--line);background:var(--surface);color:var(--ink);margin:0 12px 8px 0;text-align:left; }
+.shared-library-list small { display:block;font-size:11px;color:var(--muted);margin-top:4px; }
+.shares-toolbar { display:flex;align-items:center;justify-content:space-between;gap:16px;margin:12px 0 20px;color:var(--muted);font-size:13px; }
+.shares-toolbar p { margin:0; }
+.shares-toolbar label { display:flex;align-items:center;gap:8px;white-space:nowrap; }
+.shares-toolbar select { width:auto;min-width:140px; }
+.shares-table-head,.shares-row { display:grid;grid-template-columns:minmax(160px,1fr) minmax(130px,220px) minmax(190px,auto);align-items:center;gap:20px;padding:16px 12px;border-bottom:1px solid var(--line); }
+.shares-table-head { color:var(--muted);font-size:12px; }
+.share-note-open { display:flex;align-items:center;justify-content:flex-start;gap:12px;min-width:0;border:0;background:transparent;color:var(--ink);text-align:left;padding:6px 0; }
+.share-note-open > svg { flex-shrink:0;color:var(--muted); }
+.share-note-open > span { min-width:0; }
+.share-note-open strong,.share-note-open small { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.share-note-open strong { font-size:14px;font-weight:600;color:var(--ink); }
+.share-note-open small { margin-top:6px;font-size:12px;color:var(--muted); }
+.shares-summary { display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:12px; }
+.shares-summary small { font-size:11px; }
+.shares-actions { display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px; }
+.shares-actions button { font-size:12px;min-height:32px;padding:6px 8px; }
+.shares-actions .share-revoke { color:var(--ui-danger); }
+.share-notice { color:var(--accent);font-size:13px; }
+.shares-pagination { display:flex;align-items:center;justify-content:center;gap:16px;padding:20px; }
+@media(max-width:900px) { .shares-table-head,.shares-row { grid-template-columns:minmax(120px,1fr) minmax(100px,150px);gap:12px; }.shares-table-head>span:last-child {display:none;}.shares-actions {grid-column:1/-1;justify-content:flex-start;}.shares-toolbar {flex-wrap:wrap;} }

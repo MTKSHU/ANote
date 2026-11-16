@@ -122,7 +122,7 @@ export function CodeView({ node, updateAttributes, editor, getPos, selected }: N
       <pre className={diagram && !source ? "code-source-hidden" : ""}>
         <NodeViewContent<"code"> as="code" className={"language-" + language} />
       </pre>
-      {diagram && !source && <MermaidPreview code={node.textContent} onSelect={editable ? () => selectBlock({ editor, getPos }) : undefined} />}
+      {diagram && !source && <MermaidPreview code={node.textContent} canvasHeight={node.attrs.canvasHeight} onResize={height=>{if(editor.isEditable)updateAttributes({canvasHeight:height});}} onSelect={editable ? () => selectBlock({ editor, getPos }) : undefined} />}
     </NodeViewWrapper>
   );
 }

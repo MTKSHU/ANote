@@ -152,14 +152,15 @@ export function AppearanceButton({appearance}:{appearance:ReturnType<typeof useT
     document.addEventListener("pointerdown",outside);document.addEventListener("keydown",escape);window.addEventListener("resize",reposition);
     return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",escape);window.removeEventListener("resize",reposition);};
   },[open]);
-  return <><button ref={button} className="sidebar-appearance-switch" aria-label={translateUI("外观模式")} aria-haspopup="menu" aria-expanded={open} aria-busy={appearance.saving} title={translateUI("外观：{0}（{1}）", [option.label, option.description])} onClick={()=>{const rect=button.current!.getBoundingClientRect();setAnchor({left:Math.max(8,Math.min(rect.left,window.innerWidth-220)),bottom:window.innerHeight-rect.top+10});setOpen(!open);}}>
+  return <><button ref={button} className="sidebar-appearance-switch" aria-label={translateUI("外观模式")} aria-haspopup="menu" aria-expanded={open} aria-busy={appearance.saving} title={translateUI("外观：{0}（{1}）", [option.label, option.description])} onClick={()=>{const rect=button.current!.getBoundingClientRect(),dialog=button.current!.closest('[role="dialog"]')?.getBoundingClientRect();setAnchor({left:Math.max((dialog?.left||0)+8,Math.min(rect.left,(dialog?.right||window.innerWidth)-220)),bottom:window.innerHeight-rect.top+10});setOpen(!open);}}>
     <span className="appearance-icon" key={appearance.theme}><Icon name={option.icon} size={17}/></span><span aria-hidden="true">{option.label}</span>
   </button>{open&&createPortal(<div ref={menu} className="appearance-menu" role="menu" aria-label={translateUI("外观模式")} style={anchor} onKeyDown={event=>{
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();return;}
     const items=[...menu.current!.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')],index=items.indexOf(document.activeElement as HTMLButtonElement);
     let next:number|undefined;
     if(event.key === "ArrowDown")next=(index+1)%items.length;
     if(event.key === "ArrowUp")next=(index+items.length-1)%items.length;
     if(event.key === "Home")next=0;if(event.key === "End")next=items.length-1;
     if(next!==undefined){event.preventDefault();items[next].focus();}
-  }}>{themeOptions.map(item=><button key={item.mode} role="menuitemradio" aria-checked={appearance.theme===item.mode} onClick={()=>{appearance.choose(item.mode);close();}}><Icon name={item.icon} size={18}/><span><strong>{item.label}</strong><small>{item.description}</small></span><span className="appearance-check" aria-hidden="true">{appearance.theme===item.mode?"✓":""}</span></button>)}</div>,document.body)}</>;
+  }}>{themeOptions.map(item=><button key={item.mode} role="menuitemradio" aria-checked={appearance.theme===item.mode} onClick={()=>{appearance.choose(item.mode);close();}}><Icon name={item.icon} size={18}/><span><strong>{item.label}</strong><small>{item.description}</small></span><span className="appearance-check" aria-hidden="true">{appearance.theme===item.mode?"✓":""}</span></button>)}</div>,button.current?.closest('[role="dialog"]')||document.body)}</>;
 }

@@ -69,13 +69,16 @@ export function useDialog<T extends HTMLElement = HTMLElement>(onClose: (() => v
     const focusin = (event: FocusEvent) => {
       if (top() && !element.contains(event.target as Node)) focusFirst();
     };
+    const nativeBack=(event:Event)=>{if(!top()||event.defaultPrevented)return;event.preventDefault();if(!current.current.disabled)current.current.onClose?.();};
     document.addEventListener("keydown", keydown);
     document.addEventListener("focusin", focusin);
+    window.addEventListener("anote:mobile-back",nativeBack);
     return () => {
       const wasTop = top();
       const index = layers.indexOf(layer); if (index >= 0) layers.splice(index, 1);
       document.removeEventListener("keydown", keydown);
       document.removeEventListener("focusin", focusin);
+      window.removeEventListener("anote:mobile-back",nativeBack);
       if (overlay) overlay.style.zIndex = oldZIndex;
       if (wasTop) {
         const target = previous && visible(previous) ? previous : fallback && visible(fallback) ? fallback : layers.at(-1)?.element;

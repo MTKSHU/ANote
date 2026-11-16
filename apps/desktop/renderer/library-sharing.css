@@ -1,0 +1,24 @@
+.library-sharing-dialog { width:min(660px,calc(100vw - 32px)); }
+.library-sharing-dialog .dialog-body { padding-top:0; }
+.library-sharing-scope { margin:0 0 16px;font-size:13px;line-height:1.8;color:var(--muted); }
+.library-sharing-dialog .management-tabs { margin-bottom:20px; }
+.library-share-member-add,.library-share-link-add { display:flex;align-items:flex-end;gap:10px;margin:16px 0; }
+.library-share-member-add label,.library-share-link-add label { flex:1;min-width:0;margin:0;font-size:12px;color:var(--muted); }
+.library-share-member-add input,.library-share-link-add select { margin-top:8px; }
+.library-share-member-add button,.library-share-link-add button { flex-shrink:0; }
+.library-share-member,.library-share-link { display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--ink); }
+.library-share-member >span,.library-share-link >span { flex:1;min-width:0;overflow-wrap:anywhere; }
+.library-share-member small,.library-share-link small { color:var(--muted);font-size:12px; }
+.library-share-link strong,.library-share-link small { display:block; }
+.library-share-link small { margin-top:6px; }
+.public-note.public-library { max-width:none;min-height:100vh;box-sizing:border-box; }
+.public-library-layout { display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 150px);border-top:1px solid var(--line); }
+.public-library-layout > aside { padding:20px 8px 20px 0;border-right:1px solid var(--line); }
+.public-library-layout > aside h2 { margin:0 12px 16px;color:var(--ink);font-size:16px;overflow-wrap:anywhere; }
+.public-library-layout > aside button { display:flex;align-items:center;gap:7px;width:100%;border:0;background:transparent;color:var(--muted);text-align:left;justify-content:flex-start;padding:9px 12px;font-size:13px; }
+.public-library-layout > aside button >svg { flex-shrink:0; }
+.public-library-layout > aside button >span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.public-library-layout > aside button:hover,.public-library-layout > aside button.active { background:var(--soft);color:var(--accent); }
+.public-library-layout > article { padding:20px 32px;min-width:0;color:var(--ink); }
+.public-library-layout > article > h1 { font-size:28px;margin:0 0 24px;color:var(--ink); }
+@media(max-width:760px) { .library-share-member-add,.library-share-link-add { flex-wrap:wrap; }.public-library-layout {grid-template-columns:1fr;}.public-library-layout>aside {border-right:0;border-bottom:1px solid var(--line);max-height:220px;overflow:auto;}.public-library-layout>article {padding:20px 0;} }

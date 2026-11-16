@@ -57,7 +57,6 @@ html[data-theme="dark"]
 html[data-theme="dark"]
   :is(
     .academic-sidebar,
-    .academic-sidebar-collapsed,
     .academic-user,
     .native-sidebar-actions,
     .academic-document-header,
@@ -271,6 +270,7 @@ html[data-theme="dark"]
     .format-popover,
     .academic-slash-menu,
     .table-context-menu,
+    .table-context-toolbar,
     .academic-cell-menu,
     .table-selection-toolbar,
     .slash-menu,
@@ -284,6 +284,7 @@ html[data-theme="dark"]
 html[data-theme="dark"]
   :is(
     .selection-toolbar button,
+    .table-icon-toolbar button,
     .academic-floating-tools button,
     .format-popover h4,
     .academic-slash-menu strong,

@@ -38,6 +38,7 @@ services:
       - originals:/data/resources/originals
       - uploads:/data/resources/uploads
       - previews:/data/resources/derived
+      - clients:/data/clients:ro
     depends_on:
       db:
         condition: service_healthy
@@ -81,3 +82,4 @@ volumes:
   originals:
   uploads:
   previews:
+  clients:

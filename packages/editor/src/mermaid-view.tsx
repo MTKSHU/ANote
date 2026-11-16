@@ -1,6 +1,7 @@
 import { t as translateUI } from "@anote/i18n";
 import React, { useEffect, useRef, useState } from "react";
 import { newId } from "@anote/document-model/id";
+import {useCanvasHeight,CanvasHeightHandle} from "./canvas-height.js";
 
 type View = { x: number; y: number; zoom: number };
 type Diagram = { svg: string; width: number; height: number; code: string };
@@ -18,7 +19,8 @@ function dimensions(svg: string) {
   };
 }
 
-export function MermaidPreview({ code, onSelect }: { code: string; onSelect?: () => void }) {
+export function MermaidPreview({ code, onSelect,canvasHeight,onResize }: { code: string; onSelect?: () => void;canvasHeight?:number;onResize?:(height:number)=>void }) {
+  const height=useCanvasHeight(canvasHeight,onResize);
   const [diagram, setDiagram] = useState<Diagram | null>(null), [error, setError] = useState(""),
     [dark, setDark] = useState(document.documentElement.dataset.theme === "dark"),
     [view, setView] = useState<View>({ x: 0, y: 0, zoom: 1 }), [panning, setPanning] = useState(false);
@@ -52,7 +54,7 @@ export function MermaidPreview({ code, onSelect }: { code: string; onSelect?: ()
           const { default: mermaid } = await import("mermaid");
           mermaid.initialize({
             startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default",
-            flowchart: { htmlLabels: false }, maxTextSize: 50_000, maxEdges: 500, suppressErrorRendering: true,
+            flowchart: { htmlLabels: false,wrappingWidth:280 },markdownAutoWrap:true, maxTextSize: 50_000, maxEdges: 500, suppressErrorRendering: true,
             secure: ["securityLevel", "startOnLoad", "maxTextSize", "maxEdges", "suppressErrorRendering", "secure"],
           });
           const result = await mermaid.render("diagram-" + newId(), code);
@@ -101,7 +103,7 @@ export function MermaidPreview({ code, onSelect }: { code: string; onSelect?: ()
       </button>
       <small>{translateUI("滚轮缩放 · 按住画布拖动")}</small>
     </div>
-    <div className={"mermaid-viewport" + (panning ? " is-panning" : "")} ref={viewport} tabIndex={0} role="group" aria-label={translateUI("Mermaid 图表画布")}
+    <div className={"mermaid-viewport" + (panning ? " is-panning" : "")} style={{height:height.height}} ref={viewport} tabIndex={0} role="group" aria-label={translateUI("Mermaid 图表画布")}
       data-zoom={view.zoom} data-pan-x={view.x} data-pan-y={view.y}
       onMouseDown={event => event.preventDefault()}
       onPointerDown={event => {
@@ -127,5 +129,6 @@ export function MermaidPreview({ code, onSelect }: { code: string; onSelect?: ()
           }/>
         </div> : <p role="status">{translateUI("正在生成图表…")}</p>}
     </div>
+    <CanvasHeightHandle label={translateUI("调整 Mermaid 画布高度")} height={height.height} handle={height.handle}/>
   </div>;
 }

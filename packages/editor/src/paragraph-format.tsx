@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 type Target = { pos: number; id: string | null };
-type Position = Target & { left: number; top: number; level: number; allowed: boolean[] };
+type Position = Target & { left: number; top: number; level: number; indent: boolean; canIndent: boolean; allowed: boolean[] };
 export function ParagraphFormat({ editor }: { editor: Editor }) {
   const [position, setPosition] = useState<Position | null>(null), [open, setOpen] = useState(false);
   const opened = useRef(false), target = useRef<Target | null>(null), control = useRef<HTMLDivElement>(null);
@@ -29,14 +29,20 @@ export function ParagraphFormat({ editor }: { editor: Editor }) {
       const box = dom.getBoundingClientRect(), root = editor.view.dom.getBoundingClientRect(),
         lineHeight = Number.parseFloat(getComputedStyle(dom).lineHeight) || 24,
         left = Math.max(4, root.left + (Number.parseFloat(getComputedStyle(editor.view.dom).paddingLeft) || 36) - 34),
-        top = box.top + Math.min(box.height || lineHeight, lineHeight) / 2 - 12;
+        // Folding uses the heading's first-line gutter. Keep the heading
+        // format trigger above it so both controls remain independently usable.
+        top = dom.querySelector('.heading-fold-toggle') ? box.top - 28 : box.top + Math.min(box.height || lineHeight, lineHeight) / 2 - 12;
       let clipTop = 0, clipBottom = window.innerHeight;
       for (let parent = dom.parentElement; parent; parent = parent.parentElement) if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(parent).overflowY)) { const rect = parent.getBoundingClientRect(); clipTop = Math.max(clipTop, rect.top); clipBottom = Math.min(clipBottom, rect.bottom); }
       if (top < clipTop || top + 24 > clipBottom || left + 28 > window.innerWidth) { setPosition(null); return; }
       const hit = document.elementFromPoint(left + 14, top + 12);
       if (hit && !editor.view.dom.contains(hit) && !control.current?.contains(hit)) { setPosition(null); return; }
       target.current = current;
-      setPosition({ ...current, left, top, level: node.type.name === "heading" ? node.attrs.level : 0, allowed: Array.from({ length: 6 }, (_, level) => permitted(current!.pos, level)) });
+      const next={ ...current, left, top, level: node.type.name === "heading" ? node.attrs.level : 0, indent:node.attrs.firstLineIndent===2, canIndent:editor.can().setFirstLineIndent(2), allowed: Array.from({ length: 6 }, (_, level) => permitted(current!.pos, level)) };
+      // A React commit also captures the active contenteditable's DOM
+      // selection. Reuse an unchanged control state while typing in place;
+      // still recompute geometry, target and permissions for every update.
+      setPosition(previous=>previous&&previous.pos===next.pos&&previous.id===next.id&&previous.left===next.left&&previous.top===next.top&&previous.level===next.level&&previous.indent===next.indent&&previous.canIndent===next.canIndent&&previous.allowed.length===next.allowed.length&&previous.allowed.every((value,index)=>value===next.allowed[index])?previous:next);
     };
     const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(update); };
     const transaction = ({ transaction }: any) => {
@@ -69,8 +75,14 @@ export function ParagraphFormat({ editor }: { editor: Editor }) {
     const type = editor.schema.nodes[level ? "heading" : "paragraph"], attrs = { ...node.attrs, ...(level ? { level } : {}) }, undo = yUndoPluginKey.getState(editor.state)?.undoManager;
     undo?.stopCapturing(); editor.view.dispatch(editor.state.tr.setNodeMarkup(current.pos, type, attrs)); undo?.stopCapturing(); close(true);
   }
+  function indent(value:2|null) {
+    if(!editor.isEditable)return;
+    const undo=yUndoPluginKey.getState(editor.state)?.undoManager;undo?.stopCapturing();
+    editor.chain().focus(null,{scrollIntoView:false}).setFirstLineIndent(value).run();
+    undo?.stopCapturing();close(true);
+  }
   if (!position || !editor.isEditable) return null;
-  const menuTop = position.top + 226 < window.innerHeight ? 28 : -220;
+  const menuTop = position.top + 310 < window.innerHeight ? 28 : Math.max(12-position.top,-300);
   return createPortal(<div ref={control} className="paragraph-format-control" style={{ left: position.left, top: position.top }} onMouseDown={event => event.preventDefault()}>
     <button type="button" className="paragraph-format-trigger" aria-label={translateUI("段落格式：{0}", [(position.level ? translateUI("标题 {0}", [position.level]) : translateUI("正文"))])} aria-haspopup="menu" aria-expanded={open} title={translateUI("切换正文／标题级别")} onClick={toggle} onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); if (!opened.current) toggle(); } }}>{position.level ? "H" + position.level : translateUI("正文")}</button>
     {open && <div className="paragraph-format-menu" role="menu" aria-label={translateUI("段落格式")} style={{ top: menuTop }} onKeyDown={event => {
@@ -78,6 +90,9 @@ export function ParagraphFormat({ editor }: { editor: Editor }) {
       else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) { event.preventDefault(); const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')), index = buttons.indexOf(document.activeElement as HTMLButtonElement); buttons[event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus(); }
     }}>
       {Array.from({ length: 6 }, (_, level) => <button key={level} type="button" role="menuitemradio" aria-label={level ? translateUI("标题 {0}", [level]) : translateUI("正文")} aria-checked={position.level === level} disabled={!position.allowed[level]} onClick={() => apply(level)}><span aria-hidden="true">{level ? "H" + level : "¶"}</span>{level ? translateUI("标题 {0}", [level]) : translateUI("正文")}</button>)}
+      <div role="separator" className="paragraph-format-separator"/>
+      <button type="button" role="menuitemradio" aria-checked={position.indent} disabled={!position.canIndent} onClick={()=>indent(2)}><span aria-hidden="true">↦</span>{translateUI("首行缩进 2 字符")}</button>
+      <button type="button" role="menuitemradio" aria-checked={!position.indent} disabled={!position.canIndent} onClick={()=>indent(null)}><span aria-hidden="true">¶</span>{translateUI("取消首行缩进")}</button>
     </div>}
   </div>, document.body);
 }

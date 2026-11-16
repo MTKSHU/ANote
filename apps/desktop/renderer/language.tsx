@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { changeLanguage, getLocale, t, type Locale } from "@anote/i18n";
 
+import { flushBeforeReload } from "./reload-guards";
+
 export function LanguageSelect() {
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   return <div className="language-settings">
@@ -10,6 +12,7 @@ export function LanguageSelect() {
         setBusy(true);
         setError("");
         try {
+          await flushBeforeReload();
           await changeLanguage(next);
           const url = new URL(location.href);
           url.searchParams.set("lang", next);

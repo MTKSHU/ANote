@@ -5,7 +5,7 @@ import {randomUUID,createHash} from "node:crypto";
 import {Pool} from "pg";
 import * as Y from "yjs";
 import {findAnchor} from "@anote/document-model/anchors";
-import {api,admin,login,typeBody,chooseTheme} from "./helpers";
+import {api,admin,login,typeBody,chooseTheme, openWorkspaceSettings} from "./helpers";
 import {origin,scopes,person,register,authorization,grant,connect,call,fixture,upload} from "./mcp-helpers";
 
 test("Codex 动态本地回调端口：公共客户端无需密钥，授权码绑定实际回调",async({request})=>{
@@ -27,7 +27,7 @@ test("OAuth 浏览器授权：登录后展示权限、取消、PKCE 校验、单
   await page.route("http://127.0.0.1:33418/callback**",route=>route.fulfill({body:"Authorization returned"}));
   await page.goto(flow.url);await login(page,account);const consent=page.getByRole("dialog",{name:"连接 AI 应用",exact:true});
   await expect(consent).toContainText("Copilot 浏览器连接");await expect(consent).toContainText("读取与搜索");await expect(consent).toContainText(account.user.name);
-  const pendingId=(await page.context().cookies()).find(c=>c.name==="anote_mcp_request")!.value.split(".")[0];await api(request,"GET","me/integrations/authorization/"+pendingId,undefined,account,400);
+  const pendingId=(await page.context().cookies()).find(c=>c.name==="simplenote_mcp_request")!.value.split(".")[0];await api(request,"GET","me/integrations/authorization/"+pendingId,undefined,account,400);
   await page.screenshot({path:"artifacts/web/mcp-oauth-consent.png"});await consent.getByRole("button",{name:"允许连接",exact:true}).click();
   await expect(page).toHaveURL(/127\.0\.0\.1:33418\/callback/);const url=new URL(page.url());expect(url.searchParams.get("state")).toBe(flow.state);
   const form={grant_type:"authorization_code",client_id:client.client_id,client_secret:client.client_secret,code:url.searchParams.get("code")!,code_verifier:flow.verifier,redirect_uri:client.redirect_uris[0],resource:origin+"/mcp"};
@@ -157,8 +157,8 @@ test("暂存附件不跨连接共享，取消使原子提交回滚，撤销编�
 test("AI 连接设置明暗主题、复制反馈、撤销操作与固定设置布局兼容",async({page,request})=>{
   const account=await person(request),access=await grant(request,account,scopes,"设置中的 AI 应用");
   try{
-    await login(page,account);for(const theme of ["light","dark"] as const){await chooseTheme(page,theme);await page.locator(".academic-user").getByRole("button",{name:"设置",exact:true}).click();const settings=page.getByRole("dialog",{name:"设置",exact:true});await settings.getByRole("button",{name:"AI工具链",exact:true}).click();await expect(settings.getByLabel("MCP 接入地址",{exact:true})).toHaveValue(origin+"/mcp");await expect(settings.locator(".mcp-connection-list")).toContainText("设置中的 AI 应用");await settings.getByRole("button",{name:"复制 Copilot 配置",exact:true}).click();await expect(settings.getByRole("status")).toHaveText("配置已复制");await page.screenshot({path:`artifacts/web/mcp-settings-${theme}.png`});await settings.getByRole("button",{name:"关闭",exact:true}).click();}
-    await page.locator(".academic-user").getByRole("button",{name:"设置",exact:true}).click();const settings=page.getByRole("dialog",{name:"设置",exact:true});await settings.getByRole("button",{name:"AI工具链",exact:true}).click();await settings.getByRole("button",{name:"撤销连接",exact:true}).click();await expect(settings.getByRole("button",{name:"已撤销",exact:true})).toBeDisabled();
+    await login(page,account);for(const theme of ["light","dark"] as const){await chooseTheme(page,theme);await openWorkspaceSettings(page);const settings=page.getByRole("dialog",{name:"设置",exact:true});await settings.getByRole("button",{name:"AI工具链",exact:true}).click();await expect(settings.getByLabel("MCP 接入地址",{exact:true})).toHaveValue(origin+"/mcp");await expect(settings.locator(".mcp-connection-list")).toContainText("设置中的 AI 应用");await settings.getByRole("button",{name:"复制 Copilot 配置",exact:true}).click();await expect(settings.getByRole("status")).toHaveText("配置已复制");await page.screenshot({path:`artifacts/web/mcp-settings-${theme}.png`});await settings.getByRole("button",{name:"关闭",exact:true}).click();}
+    await openWorkspaceSettings(page);const settings=page.getByRole("dialog",{name:"设置",exact:true});await settings.getByRole("button",{name:"AI工具链",exact:true}).click();await settings.getByRole("button",{name:"撤销连接",exact:true}).click();await expect(settings.getByRole("button",{name:"已撤销",exact:true})).toBeDisabled();
   }finally{await access.close();}
 });
 

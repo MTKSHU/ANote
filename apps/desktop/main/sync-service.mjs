@@ -16,7 +16,7 @@ export class SyncService {
     this.results = new Map();
     this.closed = false;
     this.saves = Promise.resolve();
-    this.queueFile = path.join(session.profileRoot, "sync-queue.json");
+    this.queueFile = path.join(session.dataRoot || session.profileRoot, "sync-queue.json");
   }
   async load() {
     for (const job of await readJSON(this.queueFile, [])) {

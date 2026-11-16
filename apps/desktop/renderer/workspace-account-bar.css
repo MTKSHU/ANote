@@ -1,0 +1,69 @@
+.academic-workspace.workspace-account-layout { --workspace-sidebar-width:244px;--workspace-banner-height:56px;grid-template-columns:var(--workspace-sidebar-width) minmax(0,1fr);grid-template-rows:var(--workspace-banner-height) minmax(0,1fr); }
+.academic-workspace.academic-focus.workspace-account-layout { grid-template-columns:minmax(0,1fr); }
+.workspace-account-layout > .academic-sidebar { grid-column:1;grid-row:2;padding-top:18px; }
+.workspace-account-layout > .academic-main { grid-column:2;grid-row:2; }
+.academic-focus.workspace-account-layout > .academic-main { grid-column:1; }
+.workspace-top-banner { box-sizing:border-box;grid-column:1/-1;grid-row:1;position:relative;z-index:160;display:flex;align-items:center;gap:20px;height:var(--workspace-banner-height);min-width:0;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--line); }
+.workspace-banner-context { display:flex;align-items:center;gap:8px;flex:1;min-width:0;overflow:hidden;font-size:12px;color:var(--muted); }
+.workspace-banner-context > :is(a,span) { display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.workspace-banner-context > a { flex:0 1 auto;max-width:220px;color:var(--muted);text-decoration:none; }
+.workspace-banner-context > a:hover { color:var(--accent); }
+.workspace-banner-context > span { flex:1;color:var(--ink); }
+.workspace-account-layout .document-region { container:anote-document / inline-size; }
+.workspace-header-actions { display:flex;align-items:center;justify-content:flex-end;gap:12px;min-width:0;flex:0 1 auto; }
+.workspace-header-actions > :is(.academic-page-actions,.team-header-actions) { flex-shrink:1;min-width:0;flex-wrap:wrap;justify-content:flex-end; }
+.workspace-account-tools { position:static;display:flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;height:34px;margin-left:auto; }
+.workspace-account-tools > .sidebar-notifications { flex:0 0 30px;width:30px;height:32px; }
+.workspace-corner-navigation { position:static;display:flex;align-items:center;gap:4px;flex:0 0 calc(var(--workspace-sidebar-width) - 32px);width:calc(var(--workspace-sidebar-width) - 32px);height:34px; }
+.academic-focus .workspace-corner-navigation { flex-basis:68px;width:68px; }
+.workspace-corner-navigation .academic-sidebar-toggle,.workspace-corner-navigation .sidebar-collapsed-home { box-sizing:border-box;flex:0 0 30px;width:30px;height:34px;min-height:34px;padding:4px; }
+.workspace-corner-navigation .academic-brand { display:flex;flex:1;min-width:0;margin:0;padding:0 2px;gap:8px!important; }
+.workspace-corner-navigation .academic-brand > span { width:30px;height:32px; }
+.workspace-corner-navigation .academic-brand strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px; }
+.workspace-account-layout .academic-browser { padding-top:16px; }
+.workspace-account-layout .academic-browser > :is(.academic-page-header,.team-heading) { box-sizing:border-box; }
+.academic-document-header .workspace-header-actions { flex-shrink:0;gap:8px; }
+.academic-document-header .document-actions { padding:0; }
+.workspace-account-layout .academic-page-header > .workspace-header-actions { margin-left:auto; }
+.academic-sidebar > .sidebar-bottom-row { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;margin-top:auto;padding:12px 0;border-top:1px solid var(--line); }
+.sidebar-bottom-row > .workspace-link { display:flex;align-items:center;gap:7px;min-height:32px;padding:4px 8px;color:var(--muted);font-size:12px; }
+.sidebar-bottom-row > .workspace-link:hover,.sidebar-bottom-row > .workspace-link.active { background:var(--soft);color:var(--accent); }
+.sidebar-bottom-row > .workspace-link small { font-size:10px; }
+.sidebar-bottom-row .sidebar-appearance-switch { width:auto;min-width:70px;padding:4px 8px;flex-shrink:0; }
+@media(max-width:1150px) {
+  .academic-workspace.workspace-account-layout { --workspace-sidebar-width:220px; }
+  .workspace-header-actions { gap:8px; }
+  .academic-document-header .document-actions > button > span { display:none; }
+  .academic-document-header .document-actions > button { padding:6px; }
+  .academic-document-header .document-actions .note-share-button { margin-left:0; }
+}
+@media(max-width:760px) {
+  .academic-workspace.workspace-account-layout { --workspace-sidebar-width:190px; }
+  .workspace-account-layout .academic-page-header { display:flex;flex-wrap:wrap;align-items:center;gap:12px; }
+  .workspace-account-layout .academic-page-header > .compact-page-heading { flex:1 1 100px; }
+  .workspace-header-actions { flex-wrap:wrap;gap:8px; }
+  .workspace-header-actions > .academic-page-actions { margin-top:0; }
+  .academic-document-header .workspace-header-actions { flex-wrap:nowrap; }
+}
+@media(min-width:1800px) { .academic-workspace.workspace-account-layout { --workspace-sidebar-width:260px; } }
+@container anote-document (max-width:1050px) {
+  .academic-document-header { gap:6px;padding-inline:12px; }
+  .academic-document-header > .document-title-wrap { min-width:80px; }
+  .academic-document-header .workspace-header-actions { gap:6px; }
+  .academic-document-header .document-actions { gap:2px; }
+  .academic-document-header .document-actions > button,
+  .academic-document-header .document-actions > details > summary,
+  .academic-document-header .document-back { box-sizing:border-box;flex:0 0 30px;width:30px;min-width:30px;height:32px;min-height:32px;margin:0;padding:6px; }
+  .academic-document-header .document-actions > button > span,
+  .academic-document-header .page-width-menu > summary > span,
+  .academic-document-header .document-actions .sync-indicator { display:none; }
+  .academic-document-header .workspace-scope-menu > .workspace-scope-trigger { max-width:96px; }
+}
+@container anote-document (max-width:560px) {
+  .workspace-account-layout .academic-document-header { flex-wrap:wrap;height:auto;min-height:62px;padding-block:8px;row-gap:6px; }
+  .academic-document-header > .document-title-wrap { flex:1 1 120px; }
+  .academic-document-header > .workspace-header-actions { flex:1 1 100%;flex-wrap:wrap;max-width:100%;justify-content:flex-end;row-gap:6px; }
+  .academic-document-header .document-actions { flex-shrink:1;flex-wrap:wrap;justify-content:flex-end; }
+  .academic-document-header .workspace-scope-menu > .workspace-scope-trigger { max-width:80px; }
+}
+@media print { .workspace-top-banner { display:none!important; } }

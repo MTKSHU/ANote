@@ -45,7 +45,6 @@ async function launch(
     args: ["--no-sandbox", "apps/desktop", "--document=" + id],
     env: {
       ...process.env,
-      ANOTE_LOCALE: "zh-CN",
       ANOTE_CLIENT_DATA_DIR: dataDir,
       ANOTE_DESKTOP_TEST: "1",
     },

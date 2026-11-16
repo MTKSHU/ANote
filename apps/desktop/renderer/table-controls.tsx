@@ -11,6 +11,7 @@ import {
   addRow,
   addColumn,
   columnResizingPluginKey,
+  cellAround,
 } from "@tiptap/pm/tables";
 import { SelectionToolbar, TableToolbar } from "./selection-toolbar";
 import { Icon } from "./icons";
@@ -31,7 +32,8 @@ type Grid = {
 type Bar = {
   left: number;
   top: number;
-  dock: boolean;
+  cells: boolean;
+  placement: string;
   text: boolean;
   label: string;
   key: string;
@@ -97,7 +99,8 @@ function gridFor(editor: Editor, element: HTMLTableElement): Grid | null {
         .closest(".document-region")!
         .querySelector(".document-header")!
         .getBoundingClientRect(),
-      wrapper = element.closest(".tableWrapper")?.getBoundingClientRect();
+      wrapper = element.closest(".tableWrapper")?.getBoundingClientRect(),
+      info = element.closest(".document-region")?.querySelector(".document-info")?.getBoundingClientRect();
     return {
       element,
       node: table.node,
@@ -113,7 +116,7 @@ function gridFor(editor: Editor, element: HTMLTableElement): Grid | null {
       clip: {
         left: Math.max(0, region.left, wrapper?.left ?? 0),
         right: Math.min(innerWidth, region.right, wrapper?.right ?? innerWidth),
-        top: Math.max(0, region.top, header.bottom),
+        top: Math.max(0, region.top, header.bottom, info?.bottom ?? 0),
         bottom: Math.min(innerHeight, region.bottom),
       },
     };
@@ -138,6 +141,7 @@ export function TableControls({
   const [grid, setGrid] = useState<Grid | null>(null),
     [hot, setHot] = useState<Hover>(null),
     [bar, setBar] = useState<Bar | null>(null),
+    [tableActive,setTableActive]=useState(false),
     [scope, setScope] = useState<{ rows: number[]; columns: number[] }>({
       rows: [],
       columns: [],
@@ -147,7 +151,9 @@ export function TableControls({
     toolbar = useRef<HTMLDivElement>(null),
     barRef = useRef<Bar | null>(null),
     scheduleRef = useRef<() => void>(() => {}),
-    dockLock = useRef(false);
+    selecting = useRef(false),
+    requested = useRef<HTMLTableElement|null>(null),
+    dismissed = useRef("");
   const container = editor.view.dom.closest(".document-region"),
     header = container?.querySelector<HTMLElement>(".document-header") || null;
   function selectedGrid() {
@@ -165,12 +171,14 @@ export function TableControls({
     const update = () => {
       if (editor.isDestroyed || !editor.isEditable) {
         setGrid(null);
+        setTableActive(false);
         setHot(null);
         setBar(null);
         barRef.current = null;
-        dockLock.current = false;
+        requested.current = null;
         return;
       }
+      if(selecting.current){setBar(null);setHot(null);return;}
       const selection = editor.state.selection,
         selected = selectedGrid(),
         cellSelection = selection instanceof CellSelection,
@@ -184,13 +192,16 @@ export function TableControls({
       const selectedTable = selected ? gridFor(editor, selected) : null;
       const focus = document.activeElement,
         toolsFocused = !!focus?.closest(
-          ".table-context-toolbar,.table-edge-controls",
+          ".table-context-toolbar,.table-edge-controls,.table-tools-trigger",
         ),
         focused = editor.view.hasFocus() || toolsFocused;
+      setTableActive(!!selected);
+      const selectionKey=selection.from+":"+selection.to+":"+cellSelection;
+      const cellTools=cellSelection||requested.current===selected;
       const show =
         !!selectedTable &&
-        focused &&
-        (cellSelection || (!selection.empty && text));
+        focused && !selecting.current && selectionKey!==dismissed.current &&
+        (cellTools || (!selection.empty && text));
       let rows: number[] = [],
         columns: number[] = [];
       if (cellSelection && selectedTable) {
@@ -220,20 +231,32 @@ export function TableControls({
             Math.min(820, g.clip.right - g.clip.left - 24),
           headerBox = header.getBoundingClientRect();
         const key = g.pos + ":" + (cellSelection ? "cell" : "text");
-        if (barRef.current?.key !== key) dockLock.current = false;
-        const outerBottom = Math.max(
-          g.bottom,
-          g.element.closest(".tableWrapper")?.getBoundingClientRect().bottom ||
-            g.bottom,
-        );
-        let top = g.top - h - 32,
-          dock = dockLock.current;
-        if (top < headerBox.bottom + 5) {
-          if (outerBottom + h + 12 <= g.clip.bottom) top = outerBottom + 12;
-          else dock = true;
+        let anchor=editor.view.coordsAtPos(selection.head);
+        if(cellTools){
+          const point=selection instanceof CellSelection?selection.$headCell:cellAround(selection.$head);
+          const cell=point?editor.view.nodeDOM(point.pos) as HTMLElement|null:null;
+          const content=cell?.querySelector('p,h1,h2,h3,h4,h5,pre'),box=cell?.getBoundingClientRect();
+          // Keep normal cells completely clear. Very tall cells use their
+          // text block so the toolbar remains reachable in a short viewport.
+          if(box&&box.height<=(g.clip.bottom-g.clip.top)/2)anchor=box;
+          else if(content)anchor=content.getBoundingClientRect();
         }
-        if (top + h > g.clip.bottom) dock = true;
-        if (dock) dockLock.current = true;
+        const native=window.getSelection();
+        if(!cellTools&&!selection.empty&&native?.rangeCount&&dom.contains(native.anchorNode))anchor=native.getRangeAt(0).getBoundingClientRect();
+        const minTop=Math.max(headerBox.bottom,g.clip.top)+8,maxTop=Math.max(minTop,g.clip.bottom-h-8);
+        let top=anchor.top-h-10,placement="above-selection";
+        if(top<minTop){top=anchor.bottom+10;placement="below-selection";}
+        if(top>maxTop){top=maxTop;placement="viewport";}
+        top=Math.max(minTop,top);
+        // Prefer the space outside a short table for structural commands.
+        // A long table falls back to the active text without moving layout.
+        if(cellTools){
+          if(g.top-h-24>=minTop){top=g.top-h-24;placement="above-table";}
+          else {
+            const bottom=Math.max(g.bottom,g.element.closest('.tableWrapper')?.getBoundingClientRect().bottom||g.bottom)+12;
+            if(bottom<=maxTop){top=bottom;placement="below-table";}
+          }
+        }
         const label = cellSelection
           ? rows.length && columns.length
             ? translateUI("整张表格")
@@ -247,7 +270,8 @@ export function TableControls({
           key,
           label,
           text,
-          dock,
+          cells:cellTools,
+          placement,
           top: Math.max(0, top),
           left: Math.max(
             g.clip.left + 12,
@@ -261,7 +285,7 @@ export function TableControls({
       } else {
         barRef.current = null;
         setBar(null);
-        dockLock.current = false;
+        requested.current = null;
       }
       const resizing = columnResizingPluginKey.getState(editor.state)?.dragging;
       const p = pointer.current,
@@ -327,7 +351,7 @@ export function TableControls({
         hovered.current = target as HTMLTableElement;
       else if (
         !(event.target as Element).closest?.(
-          ".table-edge-controls,.table-context-toolbar",
+          ".table-edge-controls,.table-context-toolbar,.table-tools-trigger",
         )
       ) {
         const current = hovered.current?.getBoundingClientRect();
@@ -362,13 +386,15 @@ export function TableControls({
       }
     };
     const context = (event: MouseEvent) => {
-      if (
-        !editor.state.selection.empty &&
-        !(editor.state.selection instanceof CellSelection)
-      )
-        return;
-      if (editor.isEditable && selectCell(event.target as Element))
-        event.preventDefault();
+      // Long press keeps the system text selection and copy/paste menu.
+      if((event as PointerEvent).pointerType==="touch")return;
+      if(!editor.isEditable)return;
+      const target=(event.target as Element).closest("td,th");
+      if(!target||!dom.contains(target))return;
+      if(!editor.state.selection.empty&&selectedGrid()===target.closest("table")){
+        requested.current=selectedGrid();dismissed.current="";event.preventDefault();schedule();return;
+      }
+      if(selectCell(target)){requested.current=selectedGrid();dismissed.current="";event.preventDefault();}
     };
     const key = (event: KeyboardEvent) => {
       if (
@@ -376,41 +402,30 @@ export function TableControls({
           (event.key === "F10" && event.shiftKey)) &&
         editor.isActive("table")
       ) {
-        const node = editor.view.domAtPos(editor.state.selection.from).node;
-        if (
-          selectCell(
-            node.nodeType === 1 ? (node as Element) : node.parentElement,
-          )
-        ) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
+        requested.current=selectedGrid();dismissed.current="";
+        event.preventDefault();event.stopPropagation();schedule();
       }
       if (
         event.key === "Escape" &&
         editor.isActive("table") &&
-        !editor.state.selection.empty
+        !!barRef.current
       ) {
         const selection = editor.state.selection;
-        editor.view.dispatch(
-          editor.state.tr.setSelection(
-            TextSelection.near(
-              editor.state.doc.resolve(
-                selection instanceof CellSelection
-                  ? selection.$headCell.pos + 1
-                  : selection.head,
-              ),
-            ),
-          ),
-        );
+        requested.current=null;
+        if(selection instanceof CellSelection)editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(selection.$headCell)));
+        else dismissed.current=selection.from+":"+selection.to+":false";
+        editor.view.focus();
         event.preventDefault();
         schedule();
       }
     };
     const blur = (event: PointerEvent) => {
+      if(event.button===0&&dom.contains(event.target as Node)){
+        selecting.current=true;requested.current=null;dismissed.current="";setBar(null);barRef.current=null;schedule();
+      }
       if (
         !(event.target as Element).closest?.(
-          ".table-edge-controls,.table-context-toolbar",
+          ".table-edge-controls,.table-context-toolbar,.table-tools-trigger",
         ) &&
         !dom.contains(event.target as Node)
       ) {
@@ -420,6 +435,7 @@ export function TableControls({
         hovered.current = null;
       }
     };
+    const release = () => { selecting.current=false; if(pointer.current)pointer.current.down=false; schedule(); };
     const leave = () => {
       hovered.current = null;
       pointer.current = null;
@@ -432,7 +448,9 @@ export function TableControls({
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerdown", blur);
     document.addEventListener("selectionchange", schedule);
-    document.addEventListener("pointerup", schedule);
+    document.addEventListener("pointerup", release);
+    document.addEventListener("pointercancel", release);
+    window.addEventListener("blur", release);
     document.addEventListener("pointerleave", leave);
     dom.addEventListener("contextmenu", context);
     dom.addEventListener("keydown", key, true);
@@ -446,7 +464,9 @@ export function TableControls({
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerdown", blur);
       document.removeEventListener("selectionchange", schedule);
-      document.removeEventListener("pointerup", schedule);
+      document.removeEventListener("pointerup", release);
+      document.removeEventListener("pointercancel", release);
+      window.removeEventListener("blur", release);
       document.removeEventListener("pointerleave", leave);
       dom.removeEventListener("contextmenu", context);
       dom.removeEventListener("keydown", key, true);
@@ -456,7 +476,7 @@ export function TableControls({
   }, [editor, header]);
   useLayoutEffect(() => {
     scheduleRef.current();
-  }, [bar?.dock, bar?.text]);
+  }, [bar?.cells, bar?.text]);
   function select(axis: "row" | "column" | "table", index = 0, extend = false) {
     const g = grid && gridFor(editor, grid.element);
     if (!g) return;
@@ -484,7 +504,7 @@ export function TableControls({
     editor.view.dispatch(state.tr.setSelection(selection));
     editor.view.focus();
     hovered.current = g.element;
-    dockLock.current = false;
+    requested.current = g.element;
     scheduleRef.current();
   }
   function insert(axis: "row" | "column", index: number) {
@@ -517,25 +537,9 @@ export function TableControls({
       ref={toolbar}
       role="group"
       aria-label={translateUI("表格选区工具")}
-      data-placement={bar.dock ? "header" : "outside-table"}
-      className={
-        "table-context-toolbar " +
-        (bar.dock
-          ? "table-context-dock"
-          : "academic-floating-tools table-context-floating")
-      }
-      style={
-        bar.dock
-          ? undefined
-          : {
-              left: bar.left,
-              top: bar.top,
-              maxWidth: Math.max(
-                260,
-                (container?.getBoundingClientRect().width || innerWidth) - 24,
-              ),
-            }
-      }
+      data-placement={bar.placement}
+      className="table-context-toolbar academic-floating-tools table-context-floating"
+      style={{left:bar.left,top:bar.top,maxWidth:Math.max(260,(container?.getBoundingClientRect().width||innerWidth)-24)}}
       onMouseDown={(event) => {
         if (!(event.target as Element).closest("input,select"))
           event.preventDefault();
@@ -557,12 +561,24 @@ export function TableControls({
             }
           />
         )}
-        <TableToolbar editor={editor} />
+        {bar.cells&&<>
+          <button type="button" className="table-select-cell" title={translateUI("选择当前单元格；Shift 点击其它单元格扩展选区")} aria-label={translateUI("选择当前单元格")} onClick={()=>{
+            const cell=cellAround(editor.state.selection.$from);if(!cell)return;
+            editor.view.dispatch(editor.state.tr.setSelection(new CellSelection(cell)));editor.view.focus();
+          }}><Icon name="table-cell" size={18}/></button>
+          <button type="button" className="table-select-cell" title={translateUI("全选表格单元格")} aria-label={translateUI("全选表格单元格")} onClick={()=>{
+            const element=selectedGrid(),g=element&&gridFor(editor,element);if(!g)return;
+            editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc,g.start+g.map.map[0],g.start+g.map.map.at(-1)!)));
+            editor.view.focus();scheduleRef.current();
+          }}><Icon name="table" size={18}/></button>
+          <TableToolbar editor={editor} />
+        </>}
       </div>
     </div>
   );
   return (
     <>
+      {tableActive&&header?.querySelector(".document-actions")&&createPortal(<button type="button" className="table-tools-trigger" aria-label={translateUI("表格操作菜单")} title={translateUI("表格操作（Shift+F10）；拖动选择文字；使用选择柄或按钮选择单元格")} aria-expanded={!!bar?.cells} onMouseDown={event=>event.preventDefault()} onClick={()=>{requested.current=selectedGrid();dismissed.current="";scheduleRef.current();}}><Icon name="table" size={18}/></button>,header.querySelector(".document-actions")!)}
       {grid && (
         <div
           className="table-edge-controls"
@@ -672,7 +688,7 @@ export function TableControls({
           )}
         </div>
       )}
-      {bar?.dock && header ? createPortal(toolbarNode, header) : toolbarNode}
+      {toolbarNode && createPortal(toolbarNode, document.body)}
     </>
   );
 }

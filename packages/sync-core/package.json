@@ -20,10 +20,24 @@
       "types": "./dist/merge.d.ts",
       "import": "./dist/merge.js"
     },
-    "./workspace": "./node/workspace.mjs"
+    "./workspace": "./node/workspace.mjs",
+    "./mcp-model": {
+      "types": "./dist/mcp-model.d.ts",
+      "import": "./dist/mcp-model.js"
+    },
+    "./note-markdown": {
+      "types": "./dist/note-markdown.d.ts",
+      "import": "./dist/note-markdown.js"
+    },
+    "./note-archive": {
+      "types": "./dist/note-archive.d.ts",
+      "import": "./dist/note-archive.js"
+    }
   },
   "dependencies": {
     "@anote/document-model": "0.1.0",
+    "@tiptap/pm": "3.32.0",
+    "@zip.js/zip.js": "2.24.0",
     "diff": "^8.0.2",
     "markdown-it": "^14.1.0"
   },

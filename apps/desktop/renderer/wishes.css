@@ -1,0 +1,33 @@
+.wishes-filters {flex-wrap: wrap;}
+.wishes-filters .home-tabs {border: 0;}
+.wishes-filter-options {display: flex;align-items:center;flex-wrap:wrap;gap:12px;margin-left:auto;}
+.wishes-filter-options > label {display: inline-flex; align-items: center; gap: 8px; color: var(--muted); white-space: nowrap;font-size:13px;}
+.wishes-filters select {min-height:var(--ui-control-height);padding:7px 10px;border-radius:var(--ui-control-radius);}
+.wish-item {padding: 22px 0; border-bottom: 1px solid var(--line); color: var(--ink);}
+.wish-heading {display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px;}
+.wish-heading h2 {font-size: 17px; line-height: 1.5; margin: 0; color: var(--ink); overflow-wrap: anywhere;}
+.wish-status {flex-shrink: 0; font-size: 12px; color: var(--muted); border: 1px solid var(--line); padding: 2px 8px; border-radius: 4px;}
+.wish-status[data-status="completed"], .wish-status[data-status="in_progress"] {color: var(--accent);}
+.wish-meta {display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; margin-top: 8px; color: var(--muted);}
+.wish-trace {display: block; margin-top: 8px; color: var(--muted);}
+.wish-content, .wish-reply p {white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin: 12px 0 0;}
+.wish-reply {padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--raised); margin-top: 16px; color: var(--ink);}
+.wish-reply strong {font-size: 12px; color: var(--muted);}
+.wish-reply p {margin-top: 4px;}
+.wish-actions {display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px;}
+html[data-theme] .academic-workspace .wish-actions .danger-button {background: transparent; color: var(--ui-danger); border-color: var(--line);}
+html[data-theme] .academic-workspace .wish-actions .danger-button:hover {background: var(--raised);}
+.wishes-pagination {display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 20px; color: var(--muted);}
+html[data-theme] .academic-workspace .wishes-page footer {background: transparent; color: var(--muted); border-color: var(--line); font-size: 13px; line-height: 1.5;}
+.wishes-pagination button {min-height: var(--ui-control-height); font-size: 13px;}
+.wishes-empty {padding: 32px 0; color: var(--muted);}
+.wishes-notice {color: var(--accent);}
+.academic-workspace .wish-dialog {width: min(620px,calc(100vw - 32px)); background: var(--surface); color: var(--ink);}
+.wish-dialog > label {display: flex; flex-direction: column; gap: 7px; margin-top: 16px; color: var(--ink);}
+.wish-dialog > label.wish-anonymous {flex-direction: row; align-items: center; gap: 8px;}
+.wish-dialog .wish-anonymous input {width: 16px; height: 16px; margin: 0;}
+.wish-dialog > small {display: block; color: var(--muted); line-height: 1.7; margin-top: 10px;}
+.wish-dialog input, .wish-dialog textarea, .wish-dialog select {width: 100%; background: var(--canvas); color: var(--ink); border-color: var(--line);}
+.wish-dialog textarea {resize: vertical; min-height: 90px;}
+.wish-dialog > footer {display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px;}
+@media (max-width: 680px) {.wishes-filters {align-items: stretch; flex-direction: column; gap: 4px; padding-bottom: 12px;} .wishes-filter-options{margin-left:0;} .wishes-page .academic-page-header {align-items: flex-start; gap: 12px; flex-wrap: wrap;} .wish-meta {gap: 6px 12px;}}

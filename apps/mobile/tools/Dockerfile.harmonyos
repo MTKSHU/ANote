@@ -1,0 +1,12 @@
+FROM node:22-bookworm
+SHELL ["/bin/bash", "-c"]
+RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jdk-headless ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://deb.debian.org|https://repo.huaweicloud.com|g' /etc/apt/sources.list.d/debian.sources \
+ && apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 update \
+ && apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 install -y --no-install-recommends libgl1 libglib2.0-0 libxrender1 libxi6 libxrandr2 libxcursor1 libxcomposite1 libxdamage1 libnss3 libfontconfig1 \
+ && rm -rf /var/lib/apt/lists/*
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV HARMONY_TOOLS=/opt/harmony/command-line-tools
+ENV PATH=/opt/harmony/command-line-tools/bin:/opt/harmony/command-line-tools/tool/node/bin:$PATH
+COPY tools/build-harmonyos.sh /usr/local/bin/anote-build-harmonyos
+ENTRYPOINT ["/usr/local/bin/anote-build-harmonyos"]

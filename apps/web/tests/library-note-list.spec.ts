@@ -94,7 +94,7 @@ test("同库列表只显示可读笔记；单篇私有分享不展示作者知�
 test("存储受限仍可控制同库列表，收起展开不重建编辑器",async({page,request})=>{
   const root=await admin(request),owner=await person(request,root),book=await api(request,"POST","spaces",{kind:"personal",name:"无存储偏好"},owner),note=await api(request,"POST","documents",{space_id:book.id,title:"笔记"},owner);
   const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
-  await page.addInitScript(()=>{const get=Storage.prototype.getItem,set=Storage.prototype.setItem;Storage.prototype.getItem=function(key){if(key.startsWith("anote:note-list-collapsed:"))throw new Error("Unavailable");return get.call(this,key);};Storage.prototype.setItem=function(key,value){if(key.startsWith("anote:note-list-collapsed:"))throw new Error("Unavailable");return set.call(this,key,value);};});
+  await page.addInitScript(()=>{const get=Storage.prototype.getItem,set=Storage.prototype.setItem;Storage.prototype.getItem=function(key){if(key.startsWith("simple-notes:note-list-collapsed:"))throw new Error("Unavailable");return get.call(this,key);};Storage.prototype.setItem=function(key,value){if(key.startsWith("simple-notes:note-list-collapsed:"))throw new Error("Unavailable");return set.call(this,key,value);};});
   await login(page,owner);await page.goto("/?doc="+note.id);await expect(page.getByTestId("editor")).toBeVisible();
   await page.getByTestId("editor").evaluate(el=>el.dataset.panelInstance="retained");
   await panel(page).getByRole("button",{name:"隐藏笔记列表",exact:true}).click();await panel(page).getByRole("button",{name:"显示笔记列表",exact:true}).click();

@@ -29,13 +29,11 @@ async function rowBoundary(page: Page, table: Locator, index: number) {
     index === count ? rect.y + rect.height : rect.y,
   );
 }
-async function drag(page: Page, a: Locator, b: Locator) {
-  const x = (await a.boundingBox())!,
-    y = (await b.boundingBox())!;
-  await page.mouse.move(x.x + 10, x.y + x.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(y.x + y.width / 2, y.y + y.height / 2, { steps: 8 });
-  await page.mouse.up();
+async function selectCells(page: Page, a: Locator, b: Locator) {
+  await a.locator("p").first().click();
+  await page.getByRole("button", {name:"表格操作菜单",exact:true}).click();
+  await page.getByRole("button", {name:"选择当前单元格",exact:true}).click();
+  await b.click({modifiers:["Shift"]});
 }
 
 test("单元格输入不弹工具箱，边缘插入行列保持光标与内容位置", async ({
@@ -131,7 +129,7 @@ test("行列选择和整列格式保留范围；合并单元格边界插入与�
     ).toHaveCSS("text-align", /^(left|start)$/);
   }
   await table.locator("tr").nth(1).locator("td,th").first().click();
-  await drag(
+  await selectCells(
     page,
     table.locator("tr").nth(1).locator("td,th").first(),
     table.locator("tr").nth(1).locator("td,th").nth(1),
@@ -152,7 +150,7 @@ test("行列选择和整列格式保留范围；合并单元格边界插入与�
   await expect(table.locator('[colspan="3"]')).toHaveCount(0);
   await expect(table.locator("tr").nth(1).locator("td,th")).toHaveCount(4);
   await table.locator("tr").nth(1).locator("td,th").first().click();
-  await drag(
+  await selectCells(
     page,
     table.locator("tr").nth(1).locator("td,th").first(),
     table.locator("tr").nth(2).locator("td,th").first(),
@@ -177,7 +175,7 @@ test("行列选择和整列格式保留范围；合并单元格边界插入与�
   await expect(table).toContainText("1-1");
 });
 
-test("长表格操作栏停靠标题下方，滚动和改变窗口后不覆盖单元格", async ({
+test("长表格操作栏使用稳定浮层，滚动和改变窗口后不撑高标题栏", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 700 });
@@ -196,10 +194,11 @@ test("长表格操作栏停靠标题下方，滚动和改变窗口后不覆盖�
       .getByRole("button", { name: "在下方插入行", exact: true })
       .click();
   await expect(table.locator("tr")).toHaveCount(20);
-  await expect(bar).toHaveAttribute("data-placement", "header");
+  await expect(bar).toHaveAttribute("data-placement", /^(above-selection|below-selection|above-table|below-table|viewport)$/);
   const toolbarBox = (await bar.boundingBox())!,
     tableBox = (await table.boundingBox())!;
-  expect(toolbarBox.y + toolbarBox.height).toBeLessThanOrEqual(tableBox.y);
+  expect(toolbarBox.y).toBeGreaterThanOrEqual((await page.locator(".document-header").boundingBox())!.y);
+  expect(await page.locator(".document-header > .table-context-dock").count()).toBe(0);
   await page.mouse.move(tableBox.x + 100, Math.min(tableBox.y + 200, 600));
   await page.mouse.wheel(0, 80);
   await expect
@@ -219,9 +218,9 @@ test("长表格操作栏停靠标题下方，滚动和改变窗口后不覆盖�
   await expect(page.locator(".table-insert-button")).toHaveCount(0);
   await page.mouse.move(tableBox.x + 100, 400);
   await page.mouse.wheel(0, 520);
-  await expect(bar).toHaveAttribute("data-placement", "header");
+  await expect(bar).toHaveAttribute("data-placement", /^(above-selection|below-selection|above-table|below-table|viewport)$/);
   await page.setViewportSize({ width: 900, height: 650 });
-  await expect(bar).toHaveAttribute("data-placement", "header");
+  await expect(bar).toHaveAttribute("data-placement", /^(above-selection|below-selection|above-table|below-table|viewport)$/);
   await page.screenshot({
     path: "artifacts/web/table-docked-toolbar.png",
     fullPage: false,
@@ -233,7 +232,7 @@ test("长表格操作栏停靠标题下方，滚动和改变窗口后不覆盖�
   await expect(cell).toHaveText("继续编辑");
   await page.keyboard.press("Shift+F10");
   await expect(bar).toBeVisible();
-  await expect(bar).toHaveAttribute("data-placement", "header");
+  await expect(bar).toHaveAttribute("data-placement", /^(above-selection|below-selection|above-table|below-table|viewport)$/);
   const b = (await bar.boundingBox())!,
     c = (await cell.boundingBox())!;
   expect(b.y + b.height <= c.y || b.y >= c.y + c.height).toBe(true);

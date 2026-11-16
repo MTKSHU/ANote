@@ -19,7 +19,6 @@ export default defineConfig({
   ],
   outputDir: "../../artifacts/web/test-results",
   use: {
-    locale: "zh-CN",
     baseURL: process.env.BASE_URL || "http://anote.internal:3000",
     viewport: { width: 1580, height: 1150 },
     headless: true,

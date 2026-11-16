@@ -1,5 +1,6 @@
 import { t as translateUI, getLocale as uiLocale } from "@anote/i18n";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import {createPortal} from "react-dom";
 import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
 import {
@@ -10,6 +11,7 @@ import {
   useResearchEditor,
   ResearchEditorContent,
   selectionAnchor,
+  revealHeadingSection,
 } from "@anote/editor";
 import { findAnchor, resolveAnchor } from "@anote/document-model/anchors";
 import {
@@ -31,23 +33,55 @@ import { useDialog, DialogClose } from "./dialog";
 import { useDisclosureMenu } from "./disclosure-menu";
 import { NotePanelHeader } from "./note-panel-header";
 import { DocumentStatus, successfulDocumentStatus } from "./document-status";
-import { beforeLanguageChange } from "@anote/i18n";
+import {usePageWidth,PageWidthMenu} from "./document-width";
+import {exportNote,exportNoteMarkdown,type ExportSource} from "./note-export";
+import {registerReloadGuard} from "./reload-guards";
+import {NoteReferences,type NoteLinkTarget} from "./note-links";
+import {cacheMetadata,createDocumentUpdateCapture,createSyncPendingIndicator,deferredDocumentSave} from "./document-save";
+import {acquireDocumentSession,documentSessionOwner} from './document-session';
+import {DocumentPreviewGate,type LivePreviewGate} from './document-preview';
+import {applyDocumentMigrationEncoding,DOCUMENT_PROTOCOL_ORIGIN} from './document-migration-protocol';
+import {DocumentLoading} from './document-loading';
+import {useDocumentChrome} from './document-layout';
 
-export function Document({
-  state,
-  id,
-  title,
-  onDetails,
-  onBack,
-  onDelete,
-}: {
+type DocumentProps={
+  headerControls?:React.ReactNode;
+  headerActions?:React.ReactNode;
   onDetails?: (metadata: any) => void;
   onBack?: () => void;
   onDelete?: () => void;
   state: NativeState;
   id: string;
   title: string;
-}) {
+  compact?:boolean;
+  initiallyEditing?:boolean;
+  onNotes?:()=>void;
+  notesOpen?:boolean;
+  noteTargets?:NoteLinkTarget[];
+  onOpenNoteLink?:(id:string)=>void;
+};
+const localGate:LivePreviewGate={visible:true,onEditorReady:()=>{},onDenied:()=>{}};
+export function Document(props:DocumentProps){
+  if(props.state.personal)return <LiveDocument {...props} gate={localGate}/>;
+  return <DocumentPreviewGate key={documentSessionOwner(props.state)+'|'+props.id} {...props} renderLive={gate=><LiveDocument {...props} gate={gate}/>}/>;
+}
+function LiveDocument({
+  state,
+  id,
+  title,
+  onDetails,
+  onBack,
+  onDelete,
+  headerControls,
+  headerActions,
+  compact=false,
+  initiallyEditing=false,
+  onNotes,
+  notesOpen=false,
+  noteTargets=[],
+  onOpenNoteLink,
+  gate,
+}:DocumentProps&{gate:LivePreviewGate}) {
   const [ready, setReady] = useState(false),
     [network, setNetwork] = useState("connecting"),
     [pending, setPending] = useState(0),
@@ -56,20 +90,62 @@ export function Document({
     [sharing, setSharing] = useState(false),
     [savingTitle, setSavingTitle] = useState(false),
     [panel, setPanel] = useState(""),
-    [reading, setReading] = useState(false),
+    [reading, setReading] = useState(compact&&!initiallyEditing),
     [outlineOpen, setOutlineOpen] = useState(false),
     [attachment, setAttachment] = useState(""),
     [manualStatus, setManualStatus] = useState(""),
     [error, setError] = useState("");
   const titleSave = useRef<(() => Promise<void>) | null>(null),
     localSave = useRef<(() => Promise<void>) | null>(null),
+    nativeSave = useRef<(() => Promise<void>) | null>(null),
+    scheduleNativeSave = useRef<(() => void) | null>(null),
     saveTask = useRef<Promise<void> | null>(null),
     editRevision = useRef(0);
+  const reloadDocument=useRef<(()=>Promise<void>)|null>(null);
+  useEffect(()=>{const changed=(event:Event)=>{const detail=(event as CustomEvent).detail;if(state.personal&&detail?.id===id&&detail.storeId===state.user?.id)void reloadDocument.current?.();};window.addEventListener('anote-local-document-changed',changed);return()=>window.removeEventListener('anote-local-document-changed',changed);},[id,state.personal,state.user?.id]);
+  const documentConflict=state.offlineStorage?.conflicts.find(item=>item.id===id)?.kind||"";
+  const exportSource=useRef<(()=>ExportSource)|null>(null),exportTitle=useRef<(()=>string)|null>(null),region=useRef<HTMLElement>(null);
+  const [pastStart,setPastStart]=useState(false),[backRight,setBackRight]=useState(20);
+  const floatingTarget=useDocumentChrome(region,`${!!metadata}:${gate.visible}`,true);
+  const [exporting,setExporting]=useState(false);
+  const [modeChanging,setModeChanging]=useState(false);
+  const openLink=useRef(onOpenNoteLink);openLink.current=onOpenNoteLink;
+  useEffect(()=>{
+    const element=region.current;if(!element)return;
+    const open=(event:Event)=>{const target=(event as CustomEvent).detail?.id;if(typeof target!=="string"||!/^[-\w]{1,80}$/.test(target)||!openLink.current)return;event.preventDefault();openLink.current(target);};
+    element.addEventListener("anote-open-note",open);return()=>element.removeEventListener("anote-open-note",open);
+  },[id]);
+  async function toggleReading(){
+    if(modeChanging)return;
+    setModeChanging(true);
+    try{
+      if(!reading){if(region.current?.querySelector('[data-composing="true"]'))throw new Error(translateUI("请先完成当前输入，再切换阅读模式"));await flushDocument(runtime.persistence,runtime.document);await titleSave.current?.();await localSave.current?.();await nativeSave.current?.();}
+      setReading(value=>!value);setManualStatus("");
+    }catch(error){setError(translateUI((error as Error).message));}finally{setModeChanging(false);}
+  }
+  async function downloadNote(format='pdf'){
+    if(exporting||!exportSource.current||!metadata)return;
+    setExporting(true);setManualStatus(translateUI("正在准备导出…"));
+    try{const source=exportSource.current(),currentTitle=exportTitle.current?.()||metadata.title||title;setManualStatus(format==='md'?await exportNoteMarkdown(source,currentTitle,state.serverURL,setManualStatus):await exportNote(source,currentTitle,state.serverURL));}
+    catch(error){setManualStatus(translateUI("导出未完成"));setError(translateUI((error as Error).message));}finally{setExporting(false);}
+  }
   const saveContext = useRef({metadata, ready, reading, state, network});
+  const observedArchive=useRef<{key:string;archived:boolean}|null>(null);
+  useEffect(()=>{
+    if(!metadata||metadata.id!==id)return;
+    const key=state.serverURL+"|"+state.user?.id+"|"+id,archived=!!metadata.library_archived;
+    const previous=observedArchive.current;observedArchive.current={key,archived};
+    // Refresh navigation once on a live permission transition, never on note switches.
+    if(previous?.key===key&&previous.archived!==archived)window.dispatchEvent(new Event("anote-note-changed"));
+  },[id,state.serverURL,state.user?.id,metadata?.library_archived,metadata?.id]);
   const noteMenu = useDisclosureMenu();
+  const [pageWidth,setPageWidth]=usePageWidth(state.serverURL,state.user!.id);
   saveContext.current = {metadata, ready, reading, state, network};
   const runtime = useMemo(() => {
-    const document = new Y.Doc(),
+    const syncPending=createSyncPendingIndicator(setPending);
+    if(!state.personal&&!state.validationMode){const lease=acquireDocumentSession(state,id,gate.initialStateEncoding);return {...lease.value,ready:lease.ready,syncPending,lease};}
+    const document = new Y.Doc();
+    const
       persistence = new IndexeddbPersistence(
         `anote:${state.serverURL}:${state.user!.id}:${id}`,
         document,
@@ -90,6 +166,7 @@ export function Document({
               : JSON.stringify({
                   token: state.token || "",
                   schema: EDITOR_SCHEMA_VERSION,
+                  migrationEncoding:2,
                 }),
             onStatus: ({ status }) => setNetwork(status),
             onSynced: ({ state: synced }) => {
@@ -98,16 +175,33 @@ export function Document({
             onAuthenticationFailed: ({ reason }) => {
               setMetadata(null);
               setError(translateUI(reason || translateUI("会话或知识库权限已变化，请重新连接")));
+              gate.onDenied(reason||translateUI("会话或知识库权限已变化，请重新连接"));
             },
-            onUnsyncedChanges: ({ number }) => setPending(number),
+            onUnsyncedChanges: ({ number }) => syncPending.update(number),
           })
         : undefined;
     provider?.attach();
-    return { document, persistence, provider, socket };
-  }, [state.serverURL, state.user!.id, id, state.token]);
+    const ready=persistence.whenSynced.then(()=>applyDocumentMigrationEncoding(document,gate.initialStateEncoding));
+    return { document, persistence, provider, socket, ready,syncPending, hydrated:{ystate:"",hash:""},lease:undefined };
+  }, [documentSessionOwner(state),id,state.validationMode]);
+  useEffect(()=>registerReloadGuard(async()=>{
+    if(region.current?.querySelector('[data-composing="true"]'))throw new Error(translateUI("请先完成当前输入，再刷新页面"));
+    exportTitle.current?.();
+    await flushDocument(runtime.persistence,runtime.document);
+    await titleSave.current?.();
+    await localSave.current?.();
+    await nativeSave.current?.();
+    await runtime.lease?.value.savePreview();
+  }),[id,runtime]);
   useEffect(() => {
     let current = true;
-    runtime.persistence.whenSynced
+    runtime.lease?.activate();runtime.lease?.value.begin();
+    const unsubscribe=runtime.lease?.value.subscribe({
+      status:setNetwork,synced:()=>setReady(true),pending:count=>runtime.syncPending.update(count),
+      failed:reason=>{runtime.lease?.invalidate();setMetadata(null);setError(translateUI(reason||translateUI("会话或知识库权限已变化，请重新连接")));gate.onDenied(reason||translateUI("会话或知识库权限已变化，请重新连接"));},
+      saveError:error=>setError(translateUI("本地副本保存失败：{0}", [(error as Error).message])),
+    });
+    runtime.ready
       .then(() => {
         if (current) {
           setCached(true);
@@ -117,59 +211,82 @@ export function Document({
       .catch((e) => setError(translateUI(e.message)));
     return () => {
       current = false;
+      unsubscribe?.();
+      runtime.syncPending.dispose();
+      if(runtime.lease){runtime.lease.release();return;}
       runtime.provider?.destroy();
       runtime.socket?.destroy();
-      void runtime.persistence.destroy();
-      runtime.document.destroy();
+      const saveNative=nativeSave.current,saveLocal=localSave.current;
+      void Promise.allSettled([Promise.resolve().then(()=>saveLocal?.()),Promise.resolve().then(()=>saveNative?.())]).finally(async()=>{await runtime.persistence.destroy();runtime.document.destroy();});
     };
   }, [runtime]);
   useEffect(
     () =>
-      window.anote?.onBeforeClose?.(() =>
-        flushDocument(runtime.persistence, runtime.document),
-      ),
+      window.anote?.onBeforeClose?.(async () => {
+        if(region.current?.querySelector('[data-composing="true"]'))throw new Error(translateUI("请先完成当前输入，再保存并关闭"));
+        exportTitle.current?.();
+        await flushDocument(runtime.persistence, runtime.document);
+        await titleSave.current?.();
+        await localSave.current?.();
+        await nativeSave.current?.();
+        await runtime.lease?.value.savePreview();
+      }),
     [runtime],
   );
-  useEffect(() => beforeLanguageChange(async () => {
-    await flushDocument(runtime.persistence, runtime.document);
-    await titleSave.current?.();
-    await localSave.current?.();
-  }), [runtime]);
   useEffect(() => {
-    if (state.offline) runtime.socket?.disconnect();
+    if (state.offline || !metadata || metadata.offline_new || state.offlineStorage?.conflicts.some(item=>item.id===id)) runtime.socket?.disconnect();
     else void runtime.socket?.connect().catch((e) => setError(translateUI(e.message)));
-  }, [state.offline, runtime]);
+  }, [state.offline, !!metadata, metadata?.offline_new, state.offlineStorage?.conflicts.some(item=>item.id===id), runtime]);
   useEffect(() => {
     let current = true;
+    let loading:Promise<void>|null=null;
     let retry: ReturnType<typeof setTimeout> | undefined;
-    const load = (): Promise<void> =>
-      request(`documents/${id}`)
+    const load = (): Promise<void> => {
+      if(loading)return loading;
+      clearTimeout(retry);
+      const query=state.personal
+        ? runtime.hydrated.hash?"?known_hash="+encodeURIComponent(runtime.hydrated.hash):""
+        : "?content=metadata"+(runtime.lease&&state.desktop===true?"&access_check=1":"");
+      const task=request(`documents/${id}${query}`)
         .then(async (value) => {
-          if (state.personal) {
-            await runtime.persistence.whenSynced;
-            if (!current) return;
+          await runtime.ready;if(!current)return;
+          if (state.personal || state.desktop === true) {
             if (globalThis.document.querySelector('.research-editor[data-composing="true"]')) return;
-            if (value.ystate)
+            // Full CRDT states are idempotent, but decoding and applying the
+            // same large state on every local poll still blocks the renderer.
+            if (value.ystate&&value.ystate!==runtime.hydrated.ystate) {
               Y.applyUpdate(
                 runtime.document,
                 Uint8Array.from(atob(value.ystate), (c) => c.charCodeAt(0)),
               );
-            setReady(true);
-            setNetwork("local");
+              runtime.hydrated.ystate=value.ystate;
+            }
+            if(value.hash)runtime.hydrated.hash=value.hash;
+            // Online metadata must not mount an empty editor before its first
+            // collaboration sync. Offline/local responses still contain the
+            // complete state, while IndexedDB can supply an existing draft.
+            if(value.ystate || runtime.document.getXmlFragment("default").length)
+              setReady(true);
+            if(state.personal)setNetwork("local");
           }
           if (current) {
-            setMetadata(value);
+            applyDocumentMigrationEncoding(runtime.document,value.state_encoding);
+            const next=cacheMetadata(value);delete next.unchanged;
+            setMetadata((previous:any)=>JSON.stringify(previous)===JSON.stringify(next)?previous:next);
             setError(translateUI(value.sync_warning || ""));
           }
         })
         .catch((error) => {
           if (current) {
-            if ([401, 403, 404].includes(error.status)) setMetadata(null);
+            if ([401, 403, 404].includes(error.status)){runtime.lease?.invalidate();runtime.lease?.value.authorize(null,false);setMetadata(null);gate.onDenied(error.message);}
             setError(translateUI(error.message));
             if (!state.offline && ![401, 403, 404].includes(error.status))
               retry = setTimeout(load, 1500);
           }
-        });
+        }).finally(()=>{if(loading===task)loading=null;});
+      loading=task;return task;
+    };
+    reloadDocument.current=load;
     void load();
     const timer = state.personal
       ? setInterval(() => void load(), 2000)
@@ -178,6 +295,7 @@ export function Document({
       current = false;
       clearTimeout(retry);
       clearInterval(timer);
+      if(reloadDocument.current===load)reloadDocument.current=null;
     };
   }, [
     id,
@@ -185,15 +303,53 @@ export function Document({
     state.user?.id,
     state.offline,
     state.token,
+    documentConflict,
     network,
   ]);
+  useEffect(()=>{
+    // A newly-created offline note needs fresh server metadata once upload
+    // completes. Other notes' pending counters must not reload this body.
+    if(metadata?.offline_new&&state.offlineStorage?.pending===0)void reloadDocument.current?.();
+  },[metadata?.offline_new,state.offlineStorage?.pending]);
+  useEffect(()=>{runtime.lease?.value.authorize(metadata,ready);},[runtime,metadata,ready]);
+  useEffect(()=>{
+    if(state.personal || state.desktop!==true || !window.anote?.cacheOfflineDocument)return;
+    if(runtime.lease){
+      const value=runtime.lease.value,save=()=>value.saveNative();nativeSave.current=save;value.composing(()=>!!region.current?.querySelector('[data-composing="true"]'));
+      return()=>{value.composing(null);if(nativeSave.current===save)nativeSave.current=null;};
+    }
+    const identity={serverURL:state.serverURL,userId:state.user!.id};
+    let active=true,localRevision=0,savedLocalRevision=0;
+    const updates=createDocumentUpdateCapture(runtime.document);
+    const saver=deferredDocumentSave({
+      canSave:()=>{const current=saveContext.current;return !!current.ready&&!!current.metadata&&!current.metadata.archived&&!current.metadata.library_archived&&["admin","editor"].includes(current.metadata.role||current.state.user?.role);},
+      isComposing:()=>!!region.current?.querySelector('[data-composing="true"]'),
+      capture:()=>{const batch=updates.capture();return {batch,revision:localRevision,payload:{id,ystate:batch.ystate,metadata:cacheMetadata(saveContext.current.metadata),local:localRevision>savedLocalRevision,...identity}};},
+      write:async value=>{await window.anote!.cacheOfflineDocument!(value.payload);updates.acknowledge(value.batch);savedLocalRevision=Math.max(savedLocalRevision,value.revision);},
+      onError:error=>{if(active)setError(translateUI("本地副本保存失败：{0}", [(error as Error).message]));},
+    });
+    const save=()=>saver.flush(),schedule=()=>saver.markDirty();
+    const changed=(_update?:Uint8Array,origin?:unknown,_document?:Y.Doc,transaction?:Y.Transaction)=>{if(transaction?.local&&origin!==DOCUMENT_PROTOCOL_ORIGIN)localRevision++;schedule();};
+    nativeSave.current=save;scheduleNativeSave.current=schedule;runtime.document.on("update",changed);
+    void runtime.persistence.whenSynced.then(()=>{if(active)schedule();});
+    return()=>{active=false;saver.dispose();runtime.document.off("update",changed);void save().catch(()=>{}).finally(()=>updates.dispose());if(nativeSave.current===save)nativeSave.current=null;if(scheduleNativeSave.current===schedule)scheduleNativeSave.current=null;};
+  },[id,runtime,state.personal,state.desktop]);
+  useEffect(()=>{if(ready&&metadata?.id)scheduleNativeSave.current?.();},[ready,metadata?.id]);
   useEffect(() => {
     const show = (event: Event) => setAttachment((event as CustomEvent).detail);
     window.addEventListener("anote-preview-asset", show);
     return () => window.removeEventListener("anote-preview-asset", show);
   }, [id]);
+  useEffect(()=>{
+    if(state.personal||state.offline)return;
+    let live=true,loading=false;
+    const refresh=async()=>{if(loading)return;loading=true;try{const info=await request(`documents/${id}/info`);if(live)setMetadata((value:any)=>value?{...value,tags:info.tags,updated_at:info.updated_at,last_editors:info.last_editors}:value);}catch(error){if(live&&[401,403,404].includes((error as any).status)){runtime.lease?.invalidate();runtime.lease?.value.authorize(null,false);setMetadata(null);gate.onDenied((error as Error).message);}}finally{loading=false;}};
+    window.addEventListener("anote-note-changed",refresh);window.addEventListener("anote-note-info-changed",refresh);
+    const timer=setInterval(()=>void refresh(),10000);
+    return()=>{live=false;clearInterval(timer);window.removeEventListener("anote-note-changed",refresh);window.removeEventListener("anote-note-info-changed",refresh);};
+  },[id,state.personal,state.offline,state.serverURL,state.user?.id]);
   useEffect(() => {
-    const changed = () => { editRevision.current++; setManualStatus(""); };
+    const changed = (_update:Uint8Array,origin:unknown) => { if(origin===DOCUMENT_PROTOCOL_ORIGIN)return;editRevision.current++; setManualStatus(""); };
     runtime.document.on("update", changed);
     return () => { runtime.document.off("update", changed); };
   }, [runtime]);
@@ -204,7 +360,7 @@ export function Document({
     const save = async () => {
       const {metadata, ready, reading, state, network} = saveContext.current;
       if (!metadata || !ready) { setManualStatus(translateUI("笔记尚未就绪，请稍后保存")); return; }
-      if (reading || metadata.archived || !["admin", "editor"].includes(metadata.role || state.user?.role)) {
+      if (reading || metadata.archived || metadata.library_archived || !["admin", "editor"].includes(metadata.role || state.user?.role)) {
         setManualStatus(translateUI("当前为只读笔记，无需保存")); return;
       }
       const revision = editRevision.current;
@@ -213,6 +369,9 @@ export function Document({
       let cached = false;
       try {
         await flushDocument(runtime.persistence, runtime.document);
+        await saveTitle?.();
+        await nativeSave.current?.();
+        await runtime.lease?.value.savePreview();
         cached = true;
         if (!active) return;
         if (!state.personal && (state.offline || network !== "connected" || !navigator.onLine)) {
@@ -229,9 +388,11 @@ export function Document({
           await waitForDocumentSync(runtime.provider!);
           if (!active) return;
           await request(`documents/${id}/save`, "POST");
+          await runtime.lease?.value.savePreview();
         }
         if (active) {
           setError("");
+          window.dispatchEvent(new Event("anote-note-info-changed"));
           setManualStatus(editRevision.current === revision ? state.personal ? translateUI("已保存到本地") : translateUI("已保存") : "");
         }
       } catch (error) {
@@ -257,12 +418,29 @@ export function Document({
     window.addEventListener("keydown", keydown, true);
     return () => { active = false; window.removeEventListener("keydown", keydown, true); };
   }, [id, runtime]);
-  const canEdit = !!metadata && !metadata.archived && ["admin", "editor"].includes(metadata.role || state.user?.role);
+  const canEdit = gate.visible && ready && !state.storageError && !!metadata && !metadata.archived && !metadata.library_archived && !state.offlineStorage?.conflicts.some(item=>item.id===id&&item.kind!=="validation") && ["admin", "editor"].includes(metadata.role || state.user?.role);
+  const isDocumentReady=ready&&!!metadata;
+  useEffect(()=>{
+    const element=region.current;if(!element||!isDocumentReady){setPastStart(false);return;}
+    let paper:HTMLElement|null=null;
+    const observer=new ResizeObserver(update);
+    function update(){
+      // The editor mounts after its document is ready; discover its paper when scrolling starts.
+      const nextPaper=element!.querySelector<HTMLElement>('.paper');
+      if(paper!==nextPaper){if(paper)observer.unobserve(paper);paper=nextPaper;if(paper)observer.observe(paper);}
+      setPastStart(element!.scrollTop>Math.max(500,element!.clientHeight*.8));
+      if(paper)setBackRight(Math.min(window.innerWidth-56,Math.max(20,window.innerWidth-paper.getBoundingClientRect().right+20)));
+    }
+    update();element.addEventListener('scroll',update,{passive:true});observer.observe(element);window.addEventListener('resize',update);
+    return()=>{element.removeEventListener('scroll',update);observer.disconnect();window.removeEventListener('resize',update);};
+  },[id,isDocumentReady]);
   const visibleManualStatus = successfulDocumentStatus(manualStatus) && !state.personal && (state.offline || network !== "connected") ? "" : manualStatus;
   const syncMessage = visibleManualStatus || (savingTitle ? translateUI("正在保存标题…") : state.personal ? pending ? translateUI("正在保存…") : translateUI("已保存到本地") : state.offline ? translateUI("离线编辑") : network === "connected" ? pending ? translateUI("正在同步…") : translateUI("已同步") : translateUI("等待连接"));
   return (
-    <section className="document-region">
+    <section ref={region} className="document-region" style={gate.visible?undefined:{display:'none'}} aria-hidden={!gate.visible||undefined} data-view-ready={gate.visible&&isDocumentReady} data-edit-ready={gate.visible&&isDocumentReady} data-sync-ready={network==='connected'&&ready&&!!runtime.provider?.isSynced&&!runtime.provider?.hasUnsyncedChanges} data-page-width={pageWidth} data-mobile-reading={compact?(reading?"read":"edit"):undefined}>
       <div className="document-header academic-document-header">
+        {headerControls}
+        {onNotes&&<button className="mobile-note-list-trigger" aria-label={translateUI("显示笔记列表")} title={translateUI("同库笔记")} aria-haspopup="dialog" aria-expanded={notesOpen} onClick={onNotes}><Icon name="list" size={19}/></button>}
         {onBack && (
           <button
             className="document-back"
@@ -294,20 +472,25 @@ export function Document({
             }
             onSaving={setSavingTitle}
             saveRef={titleSave}
+            exportRef={exportTitle}
             onDirty={() => { editRevision.current++; setManualStatus(""); }}
             onSaved={(value) =>
               setMetadata((v: any) => ({ ...v, title: value }))
             }
           />
         </div>
+        <div className="workspace-header-actions">
         <div className="document-actions">
-          <DocumentStatus message={syncMessage} cached={cached}/>
-          <button className="document-mode-toggle" aria-label={canEdit && reading ? translateUI("编辑") : translateUI("阅读")} data-mode={reading || !canEdit ? "read" : "edit"} title={!canEdit ? translateUI("当前为只读笔记") : reading ? translateUI("返回编辑模式") : translateUI("进入阅读模式")} disabled={!ready || !canEdit} onClick={() => { setReading(value => !value); setManualStatus(""); }}>
+          {!compact&&<DocumentStatus message={syncMessage} cached={cached}/>}
+          <PageWidthMenu value={pageWidth} onChange={setPageWidth}/>
+          <button className="document-mode-toggle" aria-label={canEdit && reading ? translateUI("编辑") : translateUI("阅读")} data-mode={reading || !canEdit ? "read" : "edit"} title={!canEdit ? translateUI("当前为只读笔记") : reading ? translateUI("返回编辑模式") : translateUI("进入阅读模式")} disabled={!ready || !canEdit||modeChanging} onClick={()=>void toggleReading()}>
             <Icon name={reading && canEdit ? "edit" : "read"}/>
             <span>{canEdit && reading ? translateUI("编辑") : translateUI("阅读")}</span>
           </button>
           {!state.personal && (
             <button
+              aria-label={translateUI("评论")}
+              title={translateUI("评论")}
               className={panel === "comments" ? "active" : ""}
               onClick={() => {
                 setOutlineOpen(false);
@@ -320,6 +503,8 @@ export function Document({
           )}
           {metadata?.space_id && (
             <button
+              aria-label={translateUI("历史版本")}
+              title={translateUI("历史版本")}
               className={panel === "history" ? "active" : ""}
               onClick={() => {
                 setOutlineOpen(false);
@@ -358,7 +543,13 @@ export function Document({
               <Icon name="more" />
             </summary>
             <div>
-              {state.desktop !== false && !state.personal && (
+              {compact&&<button onClick={()=>{setOutlineOpen(value=>!value);setPanel("");}}><Icon name="list"/>{translateUI("文内目录")}</button>}
+              {compact&&!state.personal&&<button onClick={()=>{setOutlineOpen(false);setPanel(panel==="comments"?"":"comments");}}><Icon name="comment"/>{translateUI("评论")}</button>}
+              {compact&&metadata?.space_id&&<button onClick={()=>{setOutlineOpen(false);setPanel(panel==="history"?"":"history");}}><Icon name="history"/>{translateUI("历史版本")}</button>}
+              {compact&&metadata?.space_id&&!state.personal&&<button onClick={()=>setSharing(true)}><Icon name="share"/>{translateUI("共享")}</button>}
+              <button disabled={exporting||!ready||!metadata} onClick={()=>void downloadNote()}><Icon name="file"/>{state.desktop!==false?translateUI("导出 PDF"):translateUI("打印／保存 PDF")}</button>
+              <button title={translateUI("含附件时导出 ZIP，解压后包含 .md 和 assets 目录")} disabled={exporting||!ready||!metadata} onClick={()=>void downloadNote('md')}><Icon name="file"/>{translateUI("导出 Markdown（.md）")}</button>
+              {state.desktop !== false && state.validationMode && !state.personal && (
                 <button
                   onClick={() => setPanel(panel === "sync" ? "" : "sync")}
                 >
@@ -366,7 +557,7 @@ export function Document({
               )}
               {onDetails && (
                 <button
-                  disabled={savingTitle || !metadata}
+                  disabled={savingTitle || !metadata || !!metadata.library_archived}
                   onClick={() => onDetails(metadata)}
                 >
                   <Icon name="settings" />{translateUI("笔记设置 ")}</button>
@@ -377,6 +568,8 @@ export function Document({
               )}
             </div>
           </details>
+        </div>
+        {headerActions}
         </div>
       </div>
       {attachment && (
@@ -392,6 +585,12 @@ export function Document({
           <button onClick={() => setError("")}>{translateUI("关闭")}</button>
         </div>
       )}
+      {metadata&&<div className="document-info" aria-label={translateUI("笔记信息")}>
+        {compact&&<DocumentStatus message={syncMessage} cached={cached}/>}
+        <span title={translateUI("编辑者：{0}", [(metadata.last_editors?.map((person:{name:string})=>person.name).join("、")||translateUI("未记录"))])}>{translateUI("编辑者：")}{metadata.last_editors?.map((person:{name:string})=>person.name).join("、")||translateUI("未记录")}</span>
+        {metadata.updated_at&&<time dateTime={metadata.updated_at}>{translateUI("更新时间：")}{new Date(metadata.updated_at).toLocaleString(uiLocale(),{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</time>}
+        <span className="document-tags">{metadata.library_archived&&<span className="library-archive-badge">{translateUI("知识库已归档 · 只读")}</span>}<span>{translateUI("标签：")}</span>{metadata.tags?.length?metadata.tags.map((tag:string)=><span className="document-tag" title={tag} key={tag}>{tag}</span>):<span>{translateUI("无标签")}</span>}</span>
+      </div>}
       {sharing && metadata?.space_id && (
         <Sharing
           id={id}
@@ -411,6 +610,7 @@ export function Document({
           id={id}
           runtime={runtime}
           saveRef={localSave}
+          exportSource={exportSource}
           pending={pending}
           metadata={metadata}
           panel={panel}
@@ -421,18 +621,20 @@ export function Document({
           reading={reading}
           outlineOpen={outlineOpen}
           onCloseOutline={() => setOutlineOpen(false)}
+          noteTargets={noteTargets}
+          onOpenNoteLink={onOpenNoteLink}
+          floatingTarget={floatingTarget}
+          interactionReady={gate.visible}
+          onEditorReady={()=>gate.onEditorReady(region.current)}
         />
       ) : (
-        <div className="doc-loading">
-          {error || translateUI("正在准备文档…")}
-          {network !== "connected" && (
-            <p>{translateUI("首次打开需要连接服务器；已经缓存的笔记可以离线使用。")}</p>
-          )}
-        </div>
+        <DocumentLoading requestKey={id} pending={gate.visible} error={gate.visible?error:''} message={translateUI("正在准备笔记")} hint={!state.personal&&network!=="connected"?translateUI("首次打开需要连接服务器；已经缓存的笔记可以离线使用。"):undefined}/>
       )}
+      {isDocumentReady&&pastStart&&<button type="button" className="note-back-to-top" style={{right:backRight}} aria-label={translateUI("回到开头")} title={translateUI("回到开头")} onClick={()=>region.current?.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'})}><Icon name="to-top" size={19}/></button>}
     </section>
   );
 }
+function NotePanelPortal({target,children}:{target:HTMLElement|null;children:React.ReactNode}){return target?createPortal(children,target):children;}
 function DocumentOutline({
   editor,
   onClose,
@@ -473,7 +675,7 @@ function DocumentOutline({
     };
   }, [editor]);
   return (
-    <aside className="document-outline" aria-label={translateUI("文内目录")}>
+    <aside className="document-outline floating-note-panel" aria-label={translateUI("文内目录")}>
       <header>
         <strong>{translateUI("文内目录")}</strong>
         <button aria-label={translateUI("隐藏文内目录")} onClick={onClose}>
@@ -498,6 +700,7 @@ function DocumentOutline({
                 )
                   position = pos;
               });
+              revealHeadingSection(editor,position);
               const element = editor.view.nodeDOM(position);
               if (element instanceof HTMLElement) {
                 element.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -522,6 +725,7 @@ function NoteTitle({
   onSaved,
   onSaving,
   saveRef,
+  exportRef,
   onDirty,
 }: {
   id: string;
@@ -530,11 +734,12 @@ function NoteTitle({
   onSaved: (value: string) => void;
   onSaving: (value: boolean) => void;
   saveRef: React.MutableRefObject<(() => Promise<void>) | null>;
+  exportRef: React.MutableRefObject<(() => string) | null>;
   onDirty: () => void;
 }) {
   const [draft, setDraft] = useState(title),
     [error, setError] = useState("");
-  const latest = useRef(title),
+  const composing = useRef(false),latest = useRef(title),
     saved = useRef(title),
     dirty = useRef(false),
     revision = useRef(0),
@@ -588,7 +793,9 @@ function NoteTitle({
   }
   useEffect(() => {
     saveRef.current = save;
-    return () => { if (saveRef.current === save) saveRef.current = null; };
+    const currentTitle=()=>{if(composing.current)throw new Error(translateUI("请先完成当前输入，再导出笔记"));return latest.current.trim()||saved.current;};
+    exportRef.current=currentTitle;
+    return () => { if (saveRef.current === save) saveRef.current = null;if(exportRef.current===currentTitle)exportRef.current=null; };
   });
   return (
     <>
@@ -598,6 +805,8 @@ function NoteTitle({
         value={draft}
         maxLength={200}
         readOnly={!editable}
+        onCompositionStart={() => { composing.current = true; }}
+        onCompositionEnd={() => { composing.current = false; }}
         onChange={(e) => {
           latest.current = e.target.value;
           dirty.current = true;
@@ -630,6 +839,12 @@ function Editor({
   onCloseOutline,
   onLocalPending,
   saveRef,
+  exportSource,
+  noteTargets,
+  onOpenNoteLink,
+  interactionReady,
+  onEditorReady,
+  floatingTarget,
 }: {
   state: NativeState;
   id: string;
@@ -647,6 +862,12 @@ function Editor({
   onCloseOutline: () => void;
   onLocalPending: (value: number) => void;
   saveRef: React.MutableRefObject<(() => Promise<void>) | null>;
+  exportSource:React.MutableRefObject<(()=>ExportSource)|null>;
+  noteTargets:NoteLinkTarget[];
+  onOpenNoteLink?:(id:string)=>void;
+  interactionReady:boolean;
+  onEditorReady:()=>void;
+  floatingTarget:HTMLElement|null;
 }) {
   const [notice, setNotice] = useState(""),
     [quote, setQuote] = useState(""),
@@ -665,7 +886,7 @@ function Editor({
     uploadCategory = useRef<UploadCategory | null>(null),
     transfer = useRef<AbortController | null>(null);
   const role = metadata.role || state.user?.role;
-  const editable = ["admin", "editor"].includes(role) && !metadata.archived;
+  const editable = interactionReady && ["admin", "editor"].includes(role) && !metadata.archived && !metadata.library_archived && !state.offlineStorage?.conflicts.some(item=>item.id===id);
   const flush = () => flushDocument(runtime.persistence, runtime.document);
   const editor = useResearchEditor({
     document: runtime.document,
@@ -674,66 +895,38 @@ function Editor({
     editable: editable && !reading,
     canToggleTasks: editable,
   });
+  const editorReady=useRef(onEditorReady);editorReady.current=onEditorReady;
+  useEffect(()=>{if(!editor)return;const frame=requestAnimationFrame(()=>editorReady.current());return()=>cancelAnimationFrame(frame);},[editor]);
+  useEffect(()=>{if(!editor)return;const capture=()=>({snapshot:editor.getJSON() as ExportSource["snapshot"],element:editor.view.dom});exportSource.current=capture;return()=>{if(exportSource.current===capture)exportSource.current=null;};},[editor,exportSource]);
+  const historyContent=useRef<HTMLDivElement>(null);
+  useEffect(()=>{if(panel==='history')historyContent.current?.scrollTo({top:0});},[historyTab,panel]);
   useEffect(() => {
     if (!state.personal || !editor) return;
-    let timer: ReturnType<typeof setTimeout> | undefined,
-      payload: string | null = null,
-      queue = Promise.resolve();
-    const save = () => {
-      clearTimeout(timer);
-      const value = payload;
-      payload = null;
-      if (value) {
-        onLocalPending(1);
-        queue = queue
-          .catch(() => {})
-          .then(async () => {
-            await request(`documents/${id}/local-state`, "PUT", {
-              ystate: value,
-            });
-            onLocalPending(0);
-            window.dispatchEvent(new Event("anote-note-changed"));
-          })
-          .catch((error) => {
-            payload ||= value;
-            setNotice(translateUI("本地保存失败：{0}", [error.message]));
-            throw error;
-          });
-      }
-      return queue;
-    };
-    const capture = () => {
-      payload = btoa(
-        Array.from(Y.encodeStateAsUpdate(runtime.document), (b) =>
-          String.fromCharCode(b),
-        ).join(""),
-      );
-      onLocalPending(1);
-      clearTimeout(timer);
-      const settled=()=>{
-        if(editor.view.dom.dataset.composing==="true"||editor.view.composing){timer=setTimeout(settled,150);return;}
-        captureFinal();void save().catch(()=>{});
-      };
-      const captureFinal=()=>{payload=btoa(Array.from(Y.encodeStateAsUpdate(runtime.document),b=>String.fromCharCode(b)).join(""));};
-      timer = setTimeout(settled, 300);
-    };
+    let active=true;
+    const updates=createDocumentUpdateCapture(runtime.document);
+    const saver=deferredDocumentSave({delay:300,capture:()=>updates.capture(),isComposing:()=>editor.view.dom.dataset.composing==="true"||editor.view.composing,
+      write:async value=>{await request(`documents/${id}/local-state`,"PUT",{ystate:value.ystate});updates.acknowledge(value);window.dispatchEvent(new Event("anote-note-changed"));},
+      onPending:value=>{if(active)onLocalPending(value?1:0);},onError:error=>{if(active)setNotice(translateUI("本地保存失败：{0}", [(error as Error).message]));},
+    });
+    const save=()=>saver.flush(),capture=()=>saver.markDirty();
     saveRef.current = save;
     editor.on("update", capture);
     const remove = window.anote.onBeforeClose?.(async () => {
+      if(editor.view.composing||editor.view.dom.dataset.composing==="true")throw new Error(translateUI("请先完成当前输入，再保存并关闭"));
       await flush();
       await save();
     });
     return () => {
       editor.off("update", capture);
-      if (saveRef.current === save) saveRef.current = null;
       remove?.();
-      void save().catch(() => {});
+      active=false;saver.dispose();void save().catch(() => {}).finally(()=>{updates.dispose();if(saveRef.current===save)saveRef.current=null;});
     };
   }, [editor, id, state.personal]);
   async function addFiles(
     files: File[],
     position?: number,
     comparison = false,
+    projection: "flat" | "equirectangular" = "flat",
   ) {
     if (
       !editor ||
@@ -756,6 +949,7 @@ function Editor({
         setUpload,
         position,
         comparison,
+        projection,
       );
       setNotice(translateUI("附件已插入笔记。"));
     } catch (e) {
@@ -811,26 +1005,35 @@ function Editor({
   useEffect(() => {
     if(editor&&editor.isEditable!==(editable&&!reading))editor.setEditable(editable&&!reading);
   }, [editor, editable, reading]);
-  async function refresh() {
+  async function refresh(target=panel) {
     if (state.offline) return;
     try {
-      const [c, v] = await Promise.all([
-        request(`documents/${id}/comments`),
-        metadata.space_id
-          ? request(`documents/${id}/versions`)
-          : Promise.resolve([]),
-      ]);
-      setComments(c);
-      setVersions(v);
+      if(target==='comments')setComments(await request(`documents/${id}/comments`));
+      if(target==='history'&&metadata.space_id)setVersions(await request(`documents/${id}/versions`));
     } catch (e) {
       setNotice((e as Error).message);
     }
   }
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(timer);
-  }, [id, state.offline]);
+    if(state.personal||state.offline||!interactionReady)return;
+    let active=true;
+    // Keep existing annotation markers available without polling every
+    // document's comments or reading its version list during normal editing.
+    void request(`documents/${id}/comments`).then(values=>{if(active)setComments(values);}).catch(()=>{});
+    return()=>{active=false;};
+  },[id,state.personal,state.offline,interactionReady]);
+  useEffect(() => {
+    if(!['comments','history'].includes(panel))return;
+    let active=true;
+    const refreshPanel=async()=>{
+      if(state.offline)return;
+      try{const values=await request(`documents/${id}/${panel==='comments'?'comments':'versions'}`);if(active)(panel==='comments'?setComments:setVersions)(values);}
+      catch(error){if(active)setNotice((error as Error).message);}
+    };
+    void refreshPanel();
+    const timer = setInterval(() => void refreshPanel(), 5000);
+    return () => {active=false;clearInterval(timer);};
+  }, [id, state.offline,panel]);
   useEffect(() => {
     if (!editor || !state.testing) return;
     window.__anoteTest = {
@@ -893,6 +1096,11 @@ function Editor({
         onChange={(e) => {
           const files = Array.from(e.target.files || []);
           e.target.value = "";
+          const panoramaKind = uploadCategory.current === "panoramaImage" ? "image" : uploadCategory.current === "panoramaVideo" ? "video" : null;
+          if (panoramaKind && files.some(file => file.type ? panoramaKind === "image" ? !["image/jpeg", "image/png", "image/webp"].includes(file.type) : !file.type.startsWith("video/") : !(panoramaKind === "image" ? /\.(jpe?g|png|webp)$/i : /\.(mp4|webm|mov|mkv)$/i).test(file.name))) {
+            setNotice(panoramaKind === "image" ? translateUI("全景图片请选择 JPEG、PNG 或 WebP 文件。") : translateUI("全景视频请选择有效的视频文件。"));
+            return;
+          }
           if (
             uploadCategory.current === "comparison" &&
             (files.length !== 2 ||
@@ -905,12 +1113,15 @@ function Editor({
             files,
             undefined,
             uploadCategory.current === "comparison",
+            uploadCategory.current?.startsWith("panorama") ? "equirectangular" : "flat",
           );
         }}
       />
       {editable && !reading && (
         <EditorTools
           editor={editor}
+          noteTargets={noteTargets}
+          currentId={id}
           offline={state.offline || !!upload}
           onUpload={(category) => {
             uploadCategory.current = category;
@@ -948,16 +1159,17 @@ function Editor({
           "editing-columns" +
           (panel === "comments" && metadata.space_id
             ? " has-annotations"
-            : panel
+            : panel&&panel!=="history"
               ? " has-inspector"
               : "")
         }
       >
         {outlineOpen && (
-          <DocumentOutline editor={editor} onClose={onCloseOutline} />
+          <NotePanelPortal target={floatingTarget}><DocumentOutline editor={editor} onClose={onCloseOutline} /></NotePanelPortal>
         )}
         <div className="paper">
-          <ResearchEditorContent editor={editor} />
+          <ResearchEditorContent editor={editor} mentionActorId={state.user?.id} mentionCandidates={!state.personal&&!state.offline&&editable&&!reading?query=>request(`documents/${id}/mention-candidates?q=${encodeURIComponent(query)}`):undefined}/>
+          <NoteReferences editor={editor} notes={noteTargets} currentId={id} onOpen={onOpenNoteLink}/>
         </div>
         {metadata.space_id && !state.personal && (
           <Annotations
@@ -968,14 +1180,14 @@ function Editor({
             open={panel === "comments"}
             onOpen={() => setPanel("comments")}
             onClose={() => setPanel("")}
-            canComment={role !== "viewer" && !metadata.archived}
+            canComment={role !== "viewer" && !metadata.archived&&!metadata.library_archived}
             offline={state.offline}
             onRefresh={refresh}
             commentRequest={commentRequest}
           />
         )}
         {panel && !(panel === "comments" && metadata.space_id) && (
-          <aside className="inspector" aria-label={panel === "history" ? translateUI("历史版本") : panel === "sync" ? translateUI("本地同步") : translateUI("正文评论")}>
+          <NotePanelPortal target={panel==='history'?floatingTarget:null}><aside className={"inspector"+(panel==='history'?' floating-note-panel history-inspector':'')} aria-label={panel === "history" ? translateUI("历史版本") : panel === "sync" ? translateUI("本地同步") : translateUI("正文评论")}>
             <NotePanelHeader title={panel === "history" ? translateUI("历史版本") : panel === "sync" ? translateUI("本地同步") : translateUI("评论")} onClose={() => setPanel("")}/>
             {panel === "sync" ? (
               <div className="inspector-content">
@@ -1072,7 +1284,7 @@ function Editor({
                 ))}
               </div>
             ) : panel === "history" ? (
-              <div className="inspector-content history-panel">
+              <div ref={historyContent} className="inspector-content history-panel">
                 <div className="home-tabs history-tabs" role="tablist" aria-label={translateUI("历史分类")}>
                   <button role="tab" aria-selected={historyTab==="automatic"} className={historyTab==="automatic"?"active":""} onClick={()=>setHistoryTab("automatic")}>{translateUI("自动记录")}</button>
                   <button role="tab" aria-selected={historyTab==="named"} className={historyTab==="named"?"active":""} onClick={()=>setHistoryTab("named")}>{translateUI("命名版本")}</button>
@@ -1275,7 +1487,7 @@ function Editor({
                   ))}
               </div>
             )}
-          </aside>
+          </aside></NotePanelPortal>
         )}
       </div>
       {preview && (

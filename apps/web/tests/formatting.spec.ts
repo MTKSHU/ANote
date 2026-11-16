@@ -258,12 +258,10 @@ test("表格图标支持上下左右插入、行列删除、合并拆分及不�
   await page.keyboard.insertText("左格");
   await cells.nth(1).click();
   await page.keyboard.insertText("右格");
-  const a = (await cells.nth(0).boundingBox())!,
-    b = (await cells.nth(1).boundingBox())!;
-  await page.mouse.move(a.x + 10, a.y + a.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
-  await page.mouse.up();
+  await cells.nth(0).locator("p").click();
+  await page.getByRole("button",{name:"表格操作菜单",exact:true}).click();
+  await page.getByRole("button",{name:"选择当前单元格",exact:true}).click();
+  await cells.nth(1).click({modifiers:["Shift"]});
   await expect(table.locator(".selectedCell")).toHaveCount(2);
   await expect(
     tools.getByRole("button", { name: "合并单元格", exact: true }),

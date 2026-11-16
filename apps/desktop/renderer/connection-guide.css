@@ -1,0 +1,10 @@
+.connect-card .connect-brand{display:grid;place-items:center;width:42px;height:42px;margin-bottom:16px;border-radius:12px;background:#2e5f4f;color:white;font-size:24px;font-weight:650}
+.connect-card>p:not(.kicker){font-size:13px;color:#65716d;line-height:1.7}
+.connect-card h1{font-size:26px;color:#243c32}
+.connect-card label,.connect-card input{font-size:13px}
+.connect-card small{font-size:11px;color:#69756f}
+.connect-card .wide{width:100%;font-size:14px}
+.connect-card button{margin-top:16px;min-height:42px}
+.connect-card .error{font-size:12px!important;color:#a44433!important}
+.modal .connect-card{max-height:calc(100vh - 48px);overflow:auto}
+@media(max-width:520px){.connect-card{width:calc(100vw - 32px);padding:28px 24px}}

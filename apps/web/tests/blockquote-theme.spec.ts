@@ -8,7 +8,7 @@ test("暗黑引用使用主题底色与清晰文字，嵌套引用、阅读模�
   await login(page, owner); await page.goto("/?doc=" + note.id);
   const editor = page.getByTestId("editor"); await expect(editor).toHaveAttribute("contenteditable", "true");
   await editor.evaluate(el => (el as any).editor.commands.setContent({ type: "doc", content: [
-    { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "欢迎使用ANote" }] },
+    { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "欢迎使用简单笔记" }] },
     { type: "paragraph", content: [{ type: "text", text: "正文与引用应协调，并保持阅读对比。" }] },
     { type: "blockquote", content: [
       { type: "paragraph", content: [{ type: "text", text: "从一个想法开始：记录、整理、展示，再把信息交给需要的人。" }] },

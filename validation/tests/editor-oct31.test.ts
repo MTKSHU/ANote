@@ -6,7 +6,7 @@ import {taskMarkdown} from "@anote/sync-core/task-markdown";
 import {renderBlock,exportMarkdown,mergeMarkdown,parseStandard} from "@anote/sync-core";
 import {validateRichDocument,editBlocks} from "../../apps/api/src/mcp-model.js";
 test("待办标准 Markdown、嵌套、空标记兼容与勾选状态可往返",()=>{
-  assert.equal(EDITOR_SCHEMA_VERSION,4);
+  assert.equal(EDITOR_SCHEMA_VERSION,9);
   const body="- [ ] 未完成\n- [x] 已完成\n  - [] 子任务";
   const block=parseStandard({id:"todo",type:"taskList",body,protected:false});
   assert.equal(block.type,"taskList");assert.equal(block.content![0].attrs!.checked,false);assert.equal(block.content![1].attrs!.checked,true);

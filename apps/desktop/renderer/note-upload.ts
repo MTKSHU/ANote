@@ -5,7 +5,9 @@ import { newId } from "@anote/document-model/id";
 import { request } from "./native";
 const hex = (data: Uint8Array) =>
   Array.from(data, (b) => b.toString(16).padStart(2, "0")).join("");
-export function assetNodes(values: any[], comparison = false) {
+export function assetNodes(values: any[], comparison = false, projection: "flat" | "equirectangular" = "flat") {
+  if (projection === "equirectangular" && values.some(a => !["image", "video"].includes(a.kind)))
+    throw new Error(translateUI("360° 全景只支持图片和视频，请选择有效的媒体文件。"));
   return comparison &&
     values.length === 2 &&
     values.every((a) => a.kind === "image")
@@ -36,6 +38,7 @@ export function assetNodes(values: any[], comparison = false) {
           localPath: a.localPath,
           title: a.title,
           kind: a.kind,
+          projection,
           mime: a.mime,
           bytes: a.bytes,
           hash: a.hash,
@@ -147,6 +150,7 @@ export async function uploadIntoEditor(
   progress: (s: string) => void,
   position = editor.state.selection.from,
   comparison = false,
+  projection: "flat" | "equirectangular" = "flat",
 ) {
   let pos = position;
   const map = ({ transaction }: any) => {
@@ -160,7 +164,7 @@ export async function uploadIntoEditor(
         .chain()
         .focus()
         .insertContentAt(pos, [
-          ...assetNodes(values, comparison),
+          ...assetNodes(values, comparison, projection),
           { type: "paragraph" },
         ])
         .run();

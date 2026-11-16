@@ -2,7 +2,7 @@ import {test,expect,type Page,type APIRequestContext} from "@playwright/test";
 import {randomUUID} from "node:crypto";
 import {Pool} from "pg";
 import {EDITOR_SCHEMA_VERSION} from "@anote/document-model";
-import {api,admin,login,slash,chooseTheme} from "./helpers";
+import {api,admin,login,slash,chooseTheme, openWorkspaceSettings} from "./helpers";
 import {person,grant,connect,call} from "./mcp-helpers";
 async function setup(page:Page,request:APIRequestContext){const owner=await person(request),book=await api(request,"POST","spaces",{kind:"personal",name:"十月编辑器验证"},owner),note=await api(request,"POST","documents",{space_id:book.id,title:"交互验证"},owner);await login(page,owner);await page.goto("/?doc="+note.id);await expect(page.getByTestId("editor")).toHaveAttribute("contenteditable","true");return {owner,book,note};}
 async function content(page:Page,value:any){await page.getByTestId("editor").evaluate((element,json)=>(element as any).editor.commands.setContent(json),value);}
@@ -79,5 +79,5 @@ test("图片全视口预览支持缩放、拖动、右键与 Esc，视频和 PDF
 
 test("字体 CSP 与站点图标正常，Codex 入口说明和无 Bearer 的配置可复制",async({page,request})=>{
   await setup(page,request);const head=await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");expect(head).toContain("font-src 'self' data:");const icon=await request.get("/favicon.ico");expect(icon.status()).toBe(200);expect(icon.headers()["content-type"]).toContain("image/svg+xml");
-  await page.locator(".academic-user").getByRole("button",{name:"设置",exact:true}).click();const settings=page.getByRole("dialog",{name:"设置",exact:true});await settings.getByRole("button",{name:"AI工具链",exact:true}).click();await expect(settings).toContainText("Bearer 令牌、标头和环境变量留空");await settings.getByRole("button",{name:"复制 Codex 配置",exact:true}).click();await expect(settings.getByRole("status")).toHaveText("Codex 配置已复制");
+  await openWorkspaceSettings(page);const settings=page.getByRole("dialog",{name:"设置",exact:true});await settings.getByRole("button",{name:"AI工具链",exact:true}).click();await expect(settings).toContainText("Bearer 令牌、标头和环境变量留空");await settings.getByRole("button",{name:"复制 Codex 配置",exact:true}).click();await expect(settings.getByRole("status")).toHaveText("Codex 配置已复制");
 });

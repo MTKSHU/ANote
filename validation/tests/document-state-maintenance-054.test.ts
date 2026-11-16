@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {Pool} from 'pg';
+import * as Y from 'yjs';
+import {initProseMirrorDoc} from '@tiptap/y-tiptap';
+import {schema} from '@anote/document-model';
+import {stable} from '@anote/sync-core';
+import {scanDocumentMigrationEncoding} from '@anote/document-model/migration-codec';
+import {historyHeavyTodo052} from '../fixtures/history-heavy-todo-052';
+import {findAnchor} from '@anote/document-model/anchors';
+
+test('shadow compaction, revision fencing and current-state rollback preserve the latest note',async()=>{
+  assert.equal(process.env.ANOTE_ISOLATED_TESTS,'1');
+  const name='state_'+randomUUID().replaceAll('-',''),admin=new Pool({host:'db',user:'anote',database:'anote',password:process.env.DB_PASSWORD});let database:any,fixture:any,current:Y.Doc|undefined;
+  await admin.query(`CREATE DATABASE "${name}"`);
+  try{
+    const url=new URL('postgres://anote@db/'+name);url.password=process.env.DB_PASSWORD!;process.env.DATABASE_URL=url.href;process.env.ANOTE_STATE_COMPACTION_ALLOW_APPLY='true';
+    database=await import('../../apps/api/dist/database.js');await database.migrate();await import('../../apps/api/dist/teams.js');const {db,digest}=database;
+    const {compactIdleDocument}=await import('../../apps/api/dist/document-state-maintenance.js');
+    const {requireStateCapability}=await import('../../apps/api/dist/document-state-policy.js');
+    const live={documents:new Map(),loadingDocuments:new Map(),unloadingDocuments:new Map()},documents:any={server:{hocuspocus:live}};
+    await db.query("INSERT INTO users(id,username,name,password_hash) VALUES('owner','owner','Owner','fixture');INSERT INTO spaces(id,name,kind,created_by) VALUES('book','Book','personal','owner')");
+    fixture=historyHeavyTodo052();
+    await db.query("INSERT INTO documents(id,space_id,title,created_by,snapshot,ystate) VALUES('note','book','Heavy TODO','owner',$1,$2)",[fixture.snapshot,Buffer.from(fixture.update)]);
+    const anchor=findAnchor(fixture.document,initProseMirrorDoc(fixture.document.getXmlFragment('default'),schema).doc.textContent.slice(0,12));assert(anchor);
+    await db.query("INSERT INTO comments(id,doc_id,author,body,anchor) VALUES('comment','note','owner','保持定位',$1)",[anchor]);
+    const initial=(await db.query("SELECT * FROM documents WHERE id='note'")).rows[0],preview=await compactIdleDocument(documents,'note');
+    assert.equal(preview.applied,false);assert(preview.afterBytes<preview.beforeBytes*.15);assert.equal((await db.query("SELECT count(*)::int AS n FROM document_state_archives")).rows[0].n,0);
+    assert.equal(digest((await db.query("SELECT ystate FROM documents WHERE id='note'")).rows[0].ystate),digest(initial.ystate));
+    live.loadingDocuments.set('note',Promise.resolve());assert.equal((await compactIdleDocument(documents,'note',true)).reason,'document-active');live.loadingDocuments.clear();
+    await db.query("UPDATE documents SET ystate=ystate WHERE id='note'");
+    await assert.rejects(compactIdleDocument(documents,'note',true,'compact',preview.sourceStateRevision),(error:any)=>error.getStatus()===409&&/状态已变化/.test(error.getResponse().error));
+    const fresh=await compactIdleDocument(documents,'note'),applied=await compactIdleDocument(documents,'note',true,'compact',fresh.sourceStateRevision);assert.equal(applied.applied,true);
+    const compact=(await db.query("SELECT * FROM documents WHERE id='note'")).rows[0];assert.equal(compact.state_encoding,2);
+    assert.equal(digest((await db.query("SELECT ystate FROM document_state_archives WHERE doc_id='note'")).rows[0].ystate),digest(initial.ystate));
+    assert.throws(()=>requireStateCapability(2,undefined));requireStateCapability(2,'2');requireStateCapability(1,undefined);
+    current=new Y.Doc();Y.applyUpdate(current,compact.ystate);
+    const content=()=>initProseMirrorDoc(current!.getXmlFragment('default'),schema).doc.toJSON();assert.equal(stable(content()),stable(fixture.snapshot));
+    const list=current.getXmlFragment('default').get(0) as Y.XmlElement,paragraph=(list.get(0) as Y.XmlElement).get(0) as Y.XmlElement;
+    (paragraph.get(0) as Y.XmlText).insert(0,'整理后新增文字');const latest=stable(content());
+    await db.query("UPDATE documents SET ystate=$1,snapshot=$2 WHERE id='note'",[Buffer.from(Y.encodeStateAsUpdate(current)),content()]);
+    const backPreview=await compactIdleDocument(documents,'note',false,'expand');await assert.rejects(compactIdleDocument(documents,'note',true,'expand',backPreview.sourceStateRevision),(error:any)=>error.getStatus()===409&&/协议不能直接降级/.test(error.getResponse().error));
+    process.env.ANOTE_STATE_EXPANSION_OFFLINE_ONLY='true';const back=await compactIdleDocument(documents,'note',true,'expand',backPreview.sourceStateRevision);assert.equal(back.applied,true);
+    const expanded=(await db.query("SELECT state_encoding,ystate,snapshot FROM documents WHERE id='note'")).rows[0];assert.equal(expanded.state_encoding,1);assert.equal(stable(expanded.snapshot),latest);
+    current.destroy();current=new Y.Doc();Y.applyUpdate(current,expanded.ystate);assert.equal(scanDocumentMigrationEncoding(current),1);assert.equal(stable(content()),latest);
+    assert.equal((await db.query("SELECT count(*)::int AS n FROM document_state_archives WHERE doc_id='note'")).rows[0].n,2);
+    console.log(JSON.stringify({beforeBytes:preview.beforeBytes,afterBytes:preview.afterBytes,reduction:1-preview.afterBytes/preview.beforeBytes,rollbackRetainedLatest:true}));
+  }finally{current?.destroy();fixture?.document.destroy();await database?.db.end();await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();}
+});

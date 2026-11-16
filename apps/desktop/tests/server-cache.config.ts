@@ -1,0 +1,2 @@
+import {defineConfig} from "@playwright/test";
+export default defineConfig({testDir:".",testMatch:"server-cache.spec.ts",workers:1,timeout:240000,expect:{timeout:20000},reporter:[["list"],["json",{outputFile:`/workspace/artifacts/desktop/${process.env.DESKTOP_EXECUTABLE?"packaged-":""}server-cache-results.json`}]],outputDir:`/workspace/artifacts/desktop/${process.env.DESKTOP_EXECUTABLE?"packaged-":""}server-cache-test-results`,use:{baseURL:process.env.BASE_URL||"http://anote.internal:3000",headless:true,screenshot:"only-on-failure",trace:"retain-on-failure"}});

@@ -22,7 +22,7 @@ test("permanent deletion, 30-day retention and shared-resource cleanup preserve 
     process.env.ASSET_ROOT = directory;
     const database = await import("../../apps/api/dist/database.js");
     db = database.db;
-    await database.migrate();
+    await database.migrate();await import('../../apps/api/dist/teams.js');
     const { purgeTrash, expireTrash, collectStorage } = await import(
       "../../apps/api/dist/trash-maintenance.js"
     );

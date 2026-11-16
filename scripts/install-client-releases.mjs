@@ -15,8 +15,8 @@ const manifest = JSON.parse(
 );
 if (manifest.packages.length !== 4)
   throw new Error("Expected four platform builds");
-for (const item of manifest.packages) {
-  if (!/^ANote-[A-Za-z0-9_.-]+$/.test(item.file))
+for (const item of [...manifest.packages,...(manifest.legacyPackages || [])]) {
+  if (!/^(?:ANote|SimpleNote)-[A-Za-z0-9_.-]+$/.test(item.file))
     throw new Error("Invalid filename");
   const file = path.join(source, item.file),
     hash = createHash("sha256");
@@ -30,7 +30,7 @@ for (const item of manifest.packages) {
 if ((await fs.lstat(target).catch(() => null))?.isSymbolicLink())
   throw new Error("Release directory cannot be a symlink");
 await fs.mkdir(target, { recursive: true, mode: 0o755 });
-for (const item of manifest.packages) {
+for (const item of [...manifest.packages,...(manifest.legacyPackages || [])]) {
   const temporary = path.join(target, randomUUID() + ".partial");
   try {
     await fs.copyFile(path.join(source, item.file), temporary);

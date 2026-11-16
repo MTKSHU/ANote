@@ -31,18 +31,17 @@ async function launch(id: string, account: any) {
     args: ["--no-sandbox", "apps/desktop", "--document=" + id],
     env: {
       ...process.env,
-      ANOTE_LOCALE: "zh-CN",
       ANOTE_CLIENT_DATA_DIR: directory,
       ANOTE_DESKTOP_TEST: "1",
     },
   });
   applications.push(application);
   const page = await application.firstWindow();
-  await page.getByRole("button", { name: "连接团队空间", exact: true }).click();
+  await page.getByRole("button", { name: "连接服务器", exact: true }).click();
   await page.getByLabel("服务地址").fill(origin);
   await page.getByLabel("用户名", { exact: true }).fill(account.username);
   await page.getByLabel("密码", { exact: true }).fill(account.password);
-  await page.getByRole("button", { name: "连接研究空间 →" }).click();
+  await page.getByRole("button", { name: "登录并连接", exact: true }).click();
   await page.waitForFunction(() => !!window.__anoteTest?.editor);
   await expect(page.getByTestId("document-sync")).toHaveText("已同步");
   return { application, page, directory };

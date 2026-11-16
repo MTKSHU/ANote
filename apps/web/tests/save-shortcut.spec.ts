@@ -2,7 +2,7 @@ import {test,expect,type APIRequestContext} from "@playwright/test";
 import {randomUUID} from "node:crypto";
 import {Pool} from "pg";
 import * as Y from "yjs";
-import {api,admin,login} from "./helpers";
+import {api,admin,login, openWorkspaceSettings} from "./helpers";
 async function person(request:APIRequestContext,root:any){const username="save-"+randomUUID().slice(0,8),password="Save-shortcut-test-123!";await api(request,"POST","users",{username,password,name:username},root);return {...await api(request,"POST","auth/login",{username,password}),username,password};}
 async function setup(request:APIRequestContext){const root=await admin(request),owner=await person(request,root),book=await api(request,"POST","spaces",{kind:"personal",name:"手动保存"},owner),note=await api(request,"POST","documents",{space_id:book.id,title:"保存前"},owner);return {root,owner,book,note};}
 async function watchKeys(page:any){await page.addInitScript(()=>{(window as any).saveKeys=[];window.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s")setTimeout(()=>(window as any).saveKeys.push({prevented:event.defaultPrevented,ctrl:event.ctrlKey,meta:event.metaKey}),0);},true);});}
@@ -21,8 +21,8 @@ test("Ctrl/Command+S 拦截网页保存，立即提交正文与未失焦标题�
     await expect.poll(()=>page.evaluate(()=>(window as any).saveKeys.length)).toBe(5);expect(await page.evaluate(()=>(window as any).saveKeys.every((e:any)=>e.prevented))).toBe(true);
     await page.reload();await expect(title).toHaveValue("未失焦也能保存的标题");await expect(editor).toContainText("按快捷键立即落库的正文");
     // Unrelated forms and home pages retain their own shortcut scope.
-    await page.locator(".academic-user").getByRole("button",{name:"设置",exact:true}).click();expect(await page.getByLabel("昵称",{exact:true}).evaluate(el=>el.dispatchEvent(new KeyboardEvent("keydown",{key:"s",ctrlKey:true,bubbles:true,cancelable:true})))).toBe(true);await page.keyboard.press("Escape");
-    await page.locator(".academic-navigation").getByRole("button",{name:"首页",exact:true}).click();expect(await page.evaluate(()=>window.dispatchEvent(new KeyboardEvent("keydown",{key:"s",ctrlKey:true,cancelable:true})))).toBe(true);
+    await openWorkspaceSettings(page);expect(await page.getByLabel("昵称",{exact:true}).evaluate(el=>el.dispatchEvent(new KeyboardEvent("keydown",{key:"s",ctrlKey:true,bubbles:true,cancelable:true})))).toBe(true);await page.keyboard.press("Escape");
+    await page.locator(".academic-navigation").getByRole("link",{name:"首页",exact:true}).click();expect(await page.evaluate(()=>window.dispatchEvent(new KeyboardEvent("keydown",{key:"s",ctrlKey:true,cancelable:true})))).toBe(true);
   }finally{await db.end();}
 });
 

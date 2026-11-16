@@ -2,8 +2,9 @@ import { t as translateUI, getLocale as uiLocale } from "@anote/i18n";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { anchorRange, contextAnchor } from "@anote/editor";
 import { resolveAnchor } from "@anote/document-model/anchors";
 import { request } from "./native";
@@ -234,16 +235,37 @@ export function Annotations({
     // Refresh decorations without dispatching a transaction: a metadata-only
     // transaction can overwrite a DOM selection still awaiting the editor's
     // selection observer, particularly while opening the rail.
+    let frame = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const dom=editor.view.dom;
     const update = () => {
-      if (!editor.isDestroyed && !editor.view.composing)
-        editor.view.updateState(editor.state);
+      frame = 0;
+      if (editor.isDestroyed) return;
+      if (editor.view.composing) {
+        dom.addEventListener("compositionend", afterComposition, { once: true });
+        return;
+      }
+      editor.view.updateState(editor.state);
       measureRef.current();
     };
     const afterComposition = () => {
+      clearTimeout(timer);
       timer = setTimeout(update, 40);
     };
+    const afterTransaction = ({ transaction }: { transaction: Transaction }) => {
+      const current = ui.current;
+      if (!transaction.docChanged || (!current.comments.length && !current.draft))
+        return;
+      const sync = ySyncPluginKey.getState(editor.state);
+      const blockCountChanged = transaction.before.childCount !== transaction.doc.childCount;
+      if (!blockCountChanged && (!sync?.positionMigration || sync.isChangeOrigin)) return;
+      // Local structural edits calculate decorations before the sync view
+      // writes migration history. Remote block insertions/removals can also
+      // render before the Yjs transaction invalidates the anchor projection.
+      // Refresh after either structural write; plain typing needs no extra update.
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    editor.on("transaction", afterTransaction);
     if (editor.view.composing)
       dom.addEventListener("compositionend", afterComposition, {
         once: true,
@@ -251,6 +273,8 @@ export function Annotations({
     else update();
     measureRef.current();
     return () => {
+      editor.off("transaction", afterTransaction);
+      cancelAnimationFrame(frame);
       clearTimeout(timer);
       dom.removeEventListener("compositionend", afterComposition);
     };

@@ -1,5 +1,16 @@
 import React from "react";
 const paths: Record<string, string> = {
+  "table-cell":"M3 4h18v16H3z M9 9h6v6H9z",
+  "first-line-indent":"M3 5h18 M10 10h11 M3 15h18 M3 20h18 M3 8l3 2-3 2",
+  "vertical-top":"M3 3h18 M6 7h12 M6 11h12 M12 21V15 M9 18l3-3 3 3",
+  "vertical-middle":"M3 12h18 M12 2v6 M9 5l3 3 3-3 M12 22v-6 M9 19l3-3 3 3",
+  "vertical-bottom":"M3 21h18 M6 13h12 M6 17h12 M12 3v6 M9 6l3 3 3-3",
+  "to-top":"M5 4h14 M12 20V8 M6 14l6-6 6 6",
+  "page-width":"M4 4v16 M20 4v16 M8 7h8 M8 12h8 M8 17h8",
+  bell:"M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
+  "user-plus":"M15 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M3 21v-3a7 7 0 0 1 11-5 M19 13v8 M15 17h8",
+  at:"M16 8v7c0 3 5 3 5-3a9 9 0 1 0-4 7 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
+  wish: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z",
   fullscreen:"M8 3H3v5 M16 3h5v5 M21 16v5h-5 M3 16v5h5",
   fit:"M3 8V3h5 M16 3h5v5 M21 16v5h-5 M8 21H3v-5 M8 8h8v8H8z",
   sun: "M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5.6 5.6 7 7 M17 17l1.4 1.4 M5.6 18.4 7 17 M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
@@ -13,6 +24,8 @@ const paths: Record<string, string> = {
   "column-before": "M11 4h10v16H11z M16 4v16 M11 12h10 M2 12h6 M5 9v6",
   "column-after": "M3 4h10v16H3z M8 4v16 M3 12h10 M16 12h6 M19 9v6",
   "column-delete": "M3 4h10v16H3z M8 4v16 M3 12h10 M16 12h6",
+  "columns-fit":"M4 4v16 M20 4v16 M10 4v16 M4 8h16 M1 13h6 M3 11l-2 2 2 2 M17 13h6 M21 11l2 2-2 2",
+  "columns-equal":"M3 4h18v16H3z M9 4v16 M15 4v16 M3 9h18 M5 14h2 M11 14h2 M17 14h2",
   "cells-merge": "M3 4h18v16H3z M5 12h5 M8 9l3 3-3 3 M19 12h-5 M16 9l-3 3 3 3",
   "cells-split":
     "M3 4h18v16H3z M12 4v16 M9 12H5 M7 9l-3 3 3 3 M15 12h4 M17 9l3 3-3 3",
@@ -23,6 +36,7 @@ const paths: Record<string, string> = {
   users:
     "M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M5 21v-3a7 7 0 0 1 14 0v3 M19 4a3 3 0 0 1 0 6 M21 14a5 5 0 0 1 2 4",
   folder: "M3 6h6l2 2h10v12H3z M3 6V4h6l2 2",
+  "folder-plus": "M3 6h6l2 2h10v12H3z M3 6V4h6l2 2 M12 11v6 M9 14h6",
   file: "M6 3h8l4 4v14H6z M14 3v5h5 M9 12h6 M9 16h6",
   search: "M20 20l-5-5 M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0",
   plus: "M12 5v14 M5 12h14",

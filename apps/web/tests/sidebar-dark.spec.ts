@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { api, admin, login, typeBody, chooseTheme } from "./helpers";
+import { api, admin, login, typeBody, chooseTheme, removeEmptyDefaultLibrary , openWorkspaceSettings} from "./helpers";
 const password = "Sidebar-appearance-test-123!";
 test("首页个人与团队笔记按知识库归属分开，团队私有笔记不会混入个人，搜索保留分类", async ({
   page,
@@ -117,12 +117,14 @@ async function person(
     { username, name: username, password, is_admin: administrator },
     root,
   );
-  return {
+  const account = {
     ...(await api(request, "POST", "auth/login", { username, password })),
     username,
     password,
     id: user.id,
   };
+  await removeEmptyDefaultLibrary(request,account);
+  return account;
 }
 async function book(
   request: APIRequestContext,
@@ -281,7 +283,7 @@ test("侧栏固定优先并补充活跃知识库，个人与团队入口对齐�
 }) => {
   const root = await admin(request),
     owner = await person(request, root);
-  const team = await api(request, "POST", "teams", { name: "示例" }, owner);
+  const team = await api(request, "POST", "teams", { name: "Example Team" }, owner);
   const personal = await book(request, owner, "常用个人库"),
     unused = await book(request, owner, "不常用资料"),
     shared = await book(request, owner, "常用团队库", team);
@@ -313,7 +315,7 @@ test("侧栏固定优先并补充活跃知识库，个人与团队入口对齐�
     {
       markdown: exported.markdown.replace(
         "\n<!-- /anote:block -->",
-        "欢迎加入 示例，共享研究资料。\n<!-- /anote:block -->",
+        "欢迎加入 Example Team，共享研究资料。\n<!-- /anote:block -->",
       ),
       opId: randomUUID(),
     },
@@ -334,7 +336,7 @@ test("侧栏固定优先并补充活跃知识库，个人与团队入口对齐�
     .getByTestId("personal-libraries").locator(":scope > span");
   const teamLabel = sidebar
     .locator(".knowledge-section-title > span")
-    .filter({ hasText: "示例团队" });
+    .filter({ hasText: "Example Team团队" });
   expect(
     Math.abs(
       (await personalLabel.boundingBox())!.x -
@@ -348,13 +350,13 @@ test("侧栏固定优先并补充活跃知识库，个人与团队入口对齐�
     .getByRole("button", { name: "固定到侧栏 " + personal.name, exact: true })
     .click();
   await expect(sidebar.locator(".sidebar-library")).toHaveText([personal.name,shared.name]);
-  await sidebar.getByRole("button", { name: "示例团队", exact: true }).click();
+  await sidebar.getByRole("button", { name: "Example Team团队", exact: true }).click();
   await expect(page.locator(".team-pinned")).toBeVisible();
   await expect(page.locator(".team-pinned")).toContainText(
     "欢迎介绍",
   );
-  await page.locator(".team-hub .management-tabs").getByRole("button", { name: "设置", exact: true }).click();
-  await sidebar.getByRole("button", { name: "示例团队", exact: true }).click();
+  await openWorkspaceSettings(page);
+  await sidebar.getByRole("button", { name: "Example Team团队", exact: true }).click();
   await expect(page.locator(".team-pinned")).toContainText(
     "欢迎介绍",
   );
@@ -547,10 +549,7 @@ test("暗黑设置、平台页签、成员表格、下载按钮和知识库卡�
   await expect(
     sidebar.getByRole("button", { name: "平台管理", exact: true }),
   ).toHaveCount(0);
-  await sidebar
-    .locator(".academic-user")
-    .getByRole("button", { name: "设置", exact: true })
-    .click();
+  await openWorkspaceSettings(page);
   const settings = page.getByRole("dialog", { name: "设置", exact: true });
   await chooseTheme(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

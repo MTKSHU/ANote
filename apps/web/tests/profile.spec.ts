@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { api, admin, login } from "./helpers";
+import { api, admin, login , openWorkspaceSettings} from "./helpers";
 
 test("昵称仅修改本人显示名称，保存即时生效、重开保留且不改变登录身份", async ({ page, request }) => {
   expect((await request.patch("/api/me/profile", { data: { name: "匿名修改" } })).status()).toBe(401);
@@ -19,18 +19,18 @@ test("昵称仅修改本人显示名称，保存即时生效、重开保留且�
   expect(changed.is_admin).toBe(false);
   expect((await api(request, "GET", "me", undefined, peer)).name).toBe(peer.user.name);
   await login(page, owner);
-  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await openWorkspaceSettings(page);
   const settings = page.getByRole("dialog", { name: "设置", exact: true });
   await expect(settings.getByLabel("昵称", { exact: true })).toHaveValue("初始昵称");
   await settings.getByLabel("昵称", { exact: true }).fill("  研究记录者 📝  ");
   await settings.getByRole("button", { name: "保存昵称", exact: true }).click();
   await expect(settings.getByRole("status").filter({ hasText: "昵称已保存" })).toBeVisible();
   await expect(settings.locator(".profile-card h3")).toHaveText("研究记录者 📝");
-  await expect(page.locator(".academic-user")).toContainText("研究记录者 📝");
+  await expect(page.locator(".workspace-account-menu > summary .user-avatar")).toHaveText("研");
   expect((await api(request, "GET", "me", undefined, owner)).name).toBe("研究记录者 📝");
   await page.reload();
-  await expect(page.locator(".academic-user")).toContainText("研究记录者 📝");
-  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.locator(".workspace-account-menu > summary .user-avatar")).toHaveText("研");
+  await openWorkspaceSettings(page);
   await expect(settings.getByLabel("昵称", { exact: true })).toHaveValue("研究记录者 📝");
   await page.screenshot({ path: "artifacts/web/profile-nickname.png" });
   const relogin = await api(request, "POST", "auth/login", { username: owner.username, password });

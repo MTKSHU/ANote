@@ -2,7 +2,7 @@ import { test, expect, _electron } from "@playwright/test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { api, admin, chooseTheme, uiGeometry } from "../../web/tests/helpers";
+import { api, admin, chooseTheme, uiGeometry , openWorkspaceSettings} from "../../web/tests/helpers";
 test("打包后的 Linux 客户端：ASAR、隔离服务登录、受限能力和退出撤销会话", async ({
   request,
 }) => {
@@ -63,12 +63,11 @@ test("打包后的 Linux 客户端：ASAR、隔离服务登录、受限能力和
   await fs.mkdir(directory, { recursive: true });
   const application = await _electron.launch({
     executablePath: path.resolve(
-      "artifacts/releases/ANote-linux-x64/ANote",
+      process.env.DESKTOP_EXECUTABLE || "artifacts/releases/ANote-linux-x64/ANote",
     ),
     args: ["--no-sandbox"],
     env: {
       ...process.env,
-      ANOTE_LOCALE: "zh-CN",
       ANOTE_CLIENT_DATA_DIR: directory,
       ANOTE_DESKTOP_TEST: "0",
     },
@@ -94,9 +93,9 @@ test("打包后的 Linux 客户端：ASAR、隔离服务登录、受限能力和
     expect(info.nodeIntegration).toBe(false);
     const page = await application.firstWindow();
     const openMainNote = page.locator(".note-open").filter({has:page.locator("strong",{hasText:title})});
-    await page.getByRole("button", { name: "连接团队空间", exact: true }).click();
+    await page.getByRole("button", { name: "连接服务器", exact: true }).click();
     await expect(page.getByLabel("服务地址", { exact: true })).toHaveValue(
-      process.env.DESKTOP_DEFAULT_SERVER_URL || "",
+      process.env.VITE_ANOTE_SERVER_URL || "https://notes.example.org",
     );
     await page.getByLabel("服务地址", { exact: true }).fill(origin);
     await page
@@ -105,7 +104,7 @@ test("打包后的 Linux 客户端：ASAR、隔离服务登录、受限能力和
     await page
       .getByLabel("密码", { exact: true })
       .fill(process.env.ADMIN_PASSWORD!);
-    await page.getByRole("button", { name: "连接研究空间 →" }).click();
+    await page.getByRole("button", { name: "登录并连接", exact: true }).click();
     await expect(
       openMainNote,
     ).toBeVisible();
@@ -143,7 +142,7 @@ test("打包后的 Linux 客户端：ASAR、隔离服务登录、受限能力和
       "undefined",
     );
     await page
-      .locator(".academic-sidebar-heading")
+      .getByRole("group", { name: "导航与品牌", exact: true })
       .getByRole("button", { name: "收起侧边栏", exact: true })
       .click();
     const expandSidebar = page.getByRole("button", {
@@ -204,10 +203,7 @@ test("打包后的 Linux 客户端：ASAR、隔离服务登录、受限能力和
       page.getByRole("button", { name: /审核流程|提交审核|查看审核快照/ }),
     ).toHaveCount(0);
     await page.getByRole("button", { name: "收起侧栏", exact: true }).click();
-    await page
-      .locator(".academic-user")
-      .getByRole("button", { name: "设置", exact: true })
-      .click();
+    await openWorkspaceSettings(page);
     const appearance = page.getByRole("dialog", { name: "设置", exact: true });
     await chooseTheme(page, "dark");
     await appearance.getByLabel("昵称", { exact: true }).fill("桌面昵称验证");
@@ -238,10 +234,7 @@ test("打包后的 Linux 客户端：ASAR、隔离服务登录、受限能力和
     await api(request, "PATCH", "me/preferences", { theme: "light" }, account);
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await page
-      .locator(".academic-user")
-      .getByRole("button", { name: "设置", exact: true })
-      .click();
+    await openWorkspaceSettings(page);
     await chooseTheme(page, "light");
     await appearance.getByLabel("昵称", { exact: true }).fill(account.user.name);
     await appearance.getByRole("button", { name: "保存昵称", exact: true }).click();

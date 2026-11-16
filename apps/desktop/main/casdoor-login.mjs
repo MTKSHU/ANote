@@ -1,7 +1,6 @@
 import http from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import { serverOrigin } from "./session-store.mjs";
-import { getLocale, t } from "@anote/i18n";
 const messages = {
   pending: "加入申请已提交，请联系团队管理员批准后重新登录。",
   disabled: "账号已停用，请联系团队管理员。",
@@ -104,7 +103,7 @@ export class CasdoorLogin {
           "Referrer-Policy": "no-referrer",
         });
         res.end(
-          `<!doctype html><html lang="${getLocale()}"><meta charset=utf-8><title>ANote</title><p>${t("登录请求已处理，请返回 ANote 客户端。")}</p></html>`,
+          "<!doctype html><meta charset=utf-8><title>简单笔记</title><p>登录请求已处理，请返回简单笔记客户端。</p>",
         );
         try {
           const error = url.searchParams.get("error");

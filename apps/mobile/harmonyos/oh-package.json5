@@ -1,0 +1,7 @@
+{
+  "modelVersion": "5.1.0",
+  "name": "anote-mobile",
+  "version": "0.5.10",
+  "description": "ANote isolated mobile preview",
+  "devDependencies": {}
+}

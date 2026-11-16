@@ -1,5 +1,9 @@
 import { t as translateUI } from "@anote/i18n";
+import { LanguageSelect } from "../../desktop/renderer/language";
 import {MediaViewerHost} from "../../desktop/renderer/media-viewer";
+import {BrandLogo} from "../../desktop/renderer/brand";
+import {WebUpdateNotice} from "./update-notice";
+import {flushBeforeReload} from "../../desktop/renderer/reload-guards";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { NotebookWorkspace } from "../../desktop/renderer/workspace";
@@ -8,12 +12,13 @@ import "@anote/editor/style.css";
 import "../../desktop/renderer/style.css";
 import "./style.css";
 import { PublicNote } from "../../desktop/renderer/sharing";
+import { PublicLibrary } from "../../desktop/renderer/library-sharing";
 import { McpConsent } from "./mcp-consent";
-import { LanguageSelect } from "../../desktop/renderer/language";
 import "../../desktop/renderer/note-theme.css";
 import "../../desktop/renderer/workspace.css";
 import "../../desktop/renderer/themes.css";
 import "../../desktop/renderer/ui-system.css";
+import "../../desktop/renderer/mobile-workspace.css";
 import { initializeTheme } from "../../desktop/renderer/theme";
 initializeTheme();
 
@@ -31,7 +36,7 @@ async function api(endpoint: string, method = "GET", body?: any) {
   });
   const value = await response.json();
   if (!response.ok)
-    throw Object.assign(new Error(translateUI(value.error || value.message || "请求失败")), {
+    throw Object.assign(new Error(value.error || value.message || translateUI("请求失败")), {
       status: response.status,
     });
   return value;
@@ -66,6 +71,7 @@ function App() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+  if (location.pathname.startsWith("/share/library/")) return <PublicLibrary token={location.pathname.split("/")[3]} />;
   if (location.pathname.startsWith("/share/"))
     return <PublicNote token={location.pathname.split("/")[2]} />;
   if (loading) return <div className="launching">{translateUI("正在打开研究空间…")}</div>;
@@ -126,7 +132,7 @@ function Login({ onConnected }: { onConnected: (session: Session) => void }) {
   return (
     <div className="web-login">
       <section className="login-story">
-        <div className="wordmark">{siteName}</div>
+        <div className="wordmark" style={{color:"var(--ink, #3b3b3b)"}}><BrandLogo size={42}/>{siteName}</div>
         <h1>{translateUI("团队笔记")}</h1>
         <p>{translateUI("记录、协作与分享。")}</p>
       </section>
@@ -216,10 +222,11 @@ function Workspace({
     <NotebookWorkspace
       state={state}
       onLogout={async () => {
+        await flushBeforeReload();
         await api("auth/logout", "POST");
         onLogout();
       }}
     />
   );
 }
-createRoot(document.getElementById("root")!).render(<><App /><MediaViewerHost/></>);
+createRoot(document.getElementById("root")!).render(<><App /><MediaViewerHost/><WebUpdateNotice onBeforeReload={flushBeforeReload}/></>);

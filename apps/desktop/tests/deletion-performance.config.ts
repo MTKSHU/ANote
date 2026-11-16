@@ -1,0 +1,3 @@
+import {defineConfig} from "@playwright/test";
+const runtime=process.env.DELETION_RUN_LABEL||process.env.DELETION_RUNTIME||"candidate";
+export default defineConfig({testDir:".",testMatch:"deletion-performance.spec.ts",workers:1,fullyParallel:false,timeout:360000,expect:{timeout:30000},reporter:[["list"],["json",{outputFile:`/workspace/artifacts/preview-051/performance/${runtime}-results.json`}]],outputDir:`/workspace/artifacts/preview-051/performance/${runtime}-test-results`,use:{baseURL:process.env.BASE_URL||"http://anote.internal:3000",screenshot:"only-on-failure",trace:"retain-on-failure"}});

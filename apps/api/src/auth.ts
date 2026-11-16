@@ -269,25 +269,27 @@ export async function createUser(account: User, input: any) {
 export async function spaceRole(
   account: User,
   id: string,
-  action: "read" | "create" | "edit" | "comment" | "review" | "manage" = "read",
+  action: "read" | "create" | "edit" | "comment" | "review" | "manage" | "archive" = "read",
   sql: Pick<PoolClient,"query"> = db,
 ) {
   const member = (
     await sql.query(
-      "SELECT id,effective_space_role($2,id) AS role FROM spaces WHERE id=$1",
+      "SELECT id,archived,effective_space_role($2,id) AS role FROM spaces WHERE id=$1",
       [id, account.id],
     )
   ).rows[0];
   if (!member) fail(404, "知识库不存在");
   const role = member.role;
   if (!role) fail(403, "无此知识库权限");
+  if (member.archived && action !== "read" && action !== "archive")
+    fail(409, "知识库已归档，只能阅读，请先恢复知识库后再修改");
   const allowed =
     action === "read" ||
     (action === "create" && ["admin", "editor", "contributor"].includes(role)) ||
     (action === "edit" && ["admin", "editor"].includes(role)) ||
     (action === "comment" && ["admin", "editor", "reviewer", "contributor"].includes(role)) ||
     (action === "review" && ["admin", "reviewer"].includes(role)) ||
-    (action === "manage" && role === "admin");
+    (["manage","archive"].includes(action) && role === "admin");
   if (!allowed) fail(403, "当前成员没有此操作权限");
   return role as string;
 }
@@ -301,7 +303,7 @@ export async function documentRole(
 ) {
   const doc = (
     await sql.query(
-      `SELECT id,space_id,archived,created_by,visibility,access_revision,deleted_at,deleted_by,${allowDeleted ? "effective_document_role_with_deleted" : "effective_document_role"}($2,id) AS role FROM documents WHERE id=$1`,
+      `SELECT d.id,d.space_id,d.archived,d.created_by,d.visibility,d.access_revision,d.deleted_at,d.deleted_by,s.archived AS library_archived,s.archive_revision AS library_archive_revision,${allowDeleted ? "effective_document_role_with_deleted" : "effective_document_role"}($2,d.id) AS role FROM documents d JOIN spaces s ON s.id=d.space_id WHERE d.id=$1`,
       [id, account.id],
     )
   ).rows[0];
@@ -309,6 +311,8 @@ export async function documentRole(
   if (doc.deleted_at && !allowDeleted) fail(404, "笔记不存在或已移入回收站");
   const role = doc.role;
   if (!role) fail(403, "无此笔记权限");
+  if (doc.library_archived && action !== "read")
+    fail(409, "知识库已归档，只能阅读，请先恢复知识库后再修改");
   if (
     !(
       action === "read" ||

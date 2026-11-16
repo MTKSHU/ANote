@@ -12,8 +12,9 @@ import {
   Module,
   Inject,
   Query,
+  type ArgumentsHost,
 } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { NestFactory,BaseExceptionFilter } from "@nestjs/core";
 import express, { type Request, type Response } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +45,7 @@ import { startTrashMaintenance } from "./trash-maintenance.js";
 import { CasdoorController } from "./casdoor.js";
 import { identifier, fail, text } from "./errors.js";
 import { SharingController } from "./sharing.js";
+import { LibrarySharingController } from "./library-sharing.js";
 import { Documents } from "./documents.js";
 import { AssetsModule } from "./assets.js";
 import { RecordsModule } from "./records.js";
@@ -52,7 +54,14 @@ import { requestSecurity } from "./request-security.js";
 import { initializeStorage } from "./storage.js";
 import { McpConnectionsController } from "./mcp-auth.js";
 import { installMcp } from "./mcp.js";
+import { WishesController } from "./wishes.js";
 import { initializeOnboarding, onboardingOnVisit } from "./onboarding.js";
+import {SocialController} from "./social.js";
+import {VersionController} from "./version.js";
+import {OfflineController} from "./offline.js";
+import {DocumentPreviewController} from "./document-preview.js";
+import {DocumentStateMaintenanceController} from "./document-state-maintenance.js";
+import {acquireDocumentStateLease} from './document-state-service-lease.js';
 
 @Controller("api")
 class ControllerAPI {
@@ -206,8 +215,12 @@ class ControllerAPI {
   @Get("documents/:id") async getDocument(
     @Req() req: Request,
     @Param("id") id: string,
+    @Query("content") content?: string,
   ) {
-    return this.documents.get(await user(req), identifier(id));
+    const account=await user(req),key=identifier(id);
+    return content === "metadata"
+      ? this.documents.getMetadata(account,key)
+      : this.documents.get(account,key);
   }
   @Patch("documents/:id") async metadata(
     @Req() req: Request,
@@ -215,6 +228,9 @@ class ControllerAPI {
     @Body() input: any,
   ) {
     return this.documents.metadata(await user(req), identifier(id), input);
+  }
+  @Get("documents/:id/info") async documentInfo(@Req() req:Request,@Param("id") id:string) {
+    return this.documents.info(await user(req),identifier(id));
   }
   @Post("documents/:id/move-preview") async previewMove(@Req() req:Request,@Param("id") id:string,@Body() input:any){return this.documents.previewMove(await user(req),identifier(id),input);}
   @Post("documents/:id/move") async moveDocument(@Req() req:Request,@Param("id") id:string,@Body() input:any){return this.documents.move(await user(req),identifier(id),input);}
@@ -369,6 +385,9 @@ class ControllerAPI {
     }
     return result;
   }
+  @Patch("spaces/:id/archive") archiveSpace(@Req() req:Request,@Param("id") id:string,@Body() input:any){
+    return user(req).then(account=>this.documents.archiveLibrary(account,identifier(id),input));
+  }
   @Get("spaces/:id/members") async members(
     @Req() req: Request,
     @Param("id") id: string,
@@ -424,17 +443,25 @@ class ControllerAPI {
 @Module({
   imports: [AssetsModule, RecordsModule, ReleasesModule],
   controllers: [
+    SocialController,
+    VersionController,
+    OfflineController,
+    DocumentPreviewController,
+    DocumentStateMaintenanceController,
     ControllerAPI,
     SharingController,
+    LibrarySharingController,
     CasdoorController,
     PlatformController,
     TeamsController,
     TrashController,
     McpConnectionsController,
+    WishesController,
   ],
   providers: [Documents],
 })
 class AppModule {}
+const stateServiceLease=await acquireDocumentStateLease('service');
 await migrate();
 await initializeStorage();
 await initializePlatform();
@@ -444,6 +471,14 @@ const app = await NestFactory.create(AppModule, {
   bodyParser: false,
   logger: ["error", "warn", "log"],
 });
+class ArchiveWriteFilter extends BaseExceptionFilter {
+  catch(error:any,host:ArgumentsHost){
+    if(error?.code==='PZA01'){host.switchToHttp().getResponse<Response>().status(409).json({error:"知识库已归档，只能阅读，请先恢复知识库后再修改"});return;}
+    super.catch(error,host);
+  }
+}
+app.useGlobalFilters(new ArchiveWriteFilter(app.getHttpAdapter()));
+app.use(/^\/api\/documents\/[-\w]+\/offline-sync$/, express.json({limit:"32mb"}));
 app.use(express.json({ limit: "8mb" }));
 const stopMcp=installMcp(app.getHttpAdapter().getInstance(),app.get(Documents));
 app.use((req: Request, res: Response, next: express.NextFunction) =>
@@ -484,6 +519,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
       await documents.close();
       await maintenance;
       await app.close();
+      await stateServiceLease.release();
       await db.end();
       process.exit(0);
     })();

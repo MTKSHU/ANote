@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext, type Locator } from "@playwright/
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import fs from "node:fs/promises";
-import { api, admin, login, typeBody, chooseTheme } from "./helpers";
+import { api, admin, login, typeBody, chooseTheme , openWorkspaceSettings} from "./helpers";
 
 async function person(request: APIRequestContext, root: any, name: string) {
   const username = "history-" + randomUUID().slice(0, 8), password = "History-settings-test-123!";
@@ -135,7 +135,7 @@ test("暗黑历史列表和预览文字对比达标，旧记录保留未知编�
   } finally { await db.end(); }
 });
 
-test("1920×1080 设置紧凑完整显示、关闭按钮固定、Esc 退出，侧栏双行账户区保留笔记位置", async ({ page, request }) => {
+test("1920×1080 设置紧凑完整显示、关闭按钮固定、Esc 退出，账户在右上而主题在侧栏底行", async ({ page, request }) => {
   await page.setViewportSize({ width:1920, height:1080 });
   const root = await admin(request);
   await api(request, "PATCH", "me/preferences", { theme: "light" }, root);
@@ -144,19 +144,10 @@ test("1920×1080 设置紧凑完整显示、关闭按钮固定、Esc 退出，�
   await login(page);
   const toggle = page.getByRole("button", { name:"外观模式", exact:true });
   await expect(toggle).toHaveText("Light");
-  const sidebar = page.locator(".academic-user");
-  const order = await sidebar.locator(".sidebar-user-actions").evaluate(el => [...el.querySelectorAll(":scope > button")].map(e => e.getAttribute("aria-label")));
-  expect(order).toEqual(["外观模式","设置","退出登录"]);
-  const profile = (await sidebar.locator(".sidebar-user-profile").boundingBox())!;
-  const actions = await sidebar.locator(".sidebar-user-actions > button").all();
-  const bounds = await Promise.all(actions.map(async button => (await button.boundingBox())!));
-  for (const boundsItem of bounds) {
-    expect(boundsItem.height).toBe(40);
-    expect(boundsItem.y - profile.y - profile.height).toBeGreaterThanOrEqual(10);
-  }
-  expect(bounds[1].x - bounds[0].x - bounds[0].width).toBeGreaterThanOrEqual(8);
-  expect(bounds[2].x - bounds[1].x - bounds[1].width).toBeGreaterThanOrEqual(12);
-  await page.locator(".academic-user").getByRole("button", { name:"设置",exact:true }).click();
+  const account=page.getByRole("group",{name:"用户与消息",exact:true}),avatar=account.getByRole("button",{name:"用户菜单",exact:true}),profile=(await avatar.boundingBox())!,theme=(await toggle.boundingBox())!;
+  expect(profile.y).toBeLessThan(80);expect(theme.y).toBeGreaterThan(900);await avatar.click();
+  await expect(page.getByRole("menuitem",{name:"设置",exact:true})).toBeVisible();await expect(page.getByRole("menuitem",{name:"退出登录",exact:true})).toBeVisible();await page.keyboard.press("Escape");
+  await openWorkspaceSettings(page);
   const settings = page.getByRole("dialog", { name:"设置",exact:true });
   await settings.evaluate(el=>Promise.all(el.getAnimations().map(animation=>animation.finished)));
   const initialBounds = (await settings.boundingBox())!;
@@ -171,7 +162,7 @@ test("1920×1080 设置紧凑完整显示、关闭按钮固定、Esc 退出，�
   await settings.getByRole("button",{name:"桌面客户端",exact:true}).click();
   await stableBounds();
   await fit();
-  await expect(settings.getByRole("link",{name:/下载 ANote-/})).toHaveCount(4);
+  await expect(settings.getByRole("link",{name:/下载 (ANote|SimpleNote)/})).toHaveCount(4);
   await page.screenshot({ path:"artifacts/web/compact-clients-1080.png" });
   await settings.getByRole("button",{name:"平台管理",exact:true}).click();
   await stableBounds();

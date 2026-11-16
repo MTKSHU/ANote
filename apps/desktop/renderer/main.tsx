@@ -1,11 +1,17 @@
-import { t as translateUI, getLocale as uiLanguage } from "@anote/i18n";
+import { t as translateUI } from "@anote/i18n";
+import { getLocale as uiLanguage } from "@anote/i18n";
+import { LanguageSelect } from "./language";
 import {MediaViewerHost} from "./media-viewer";
+import {BrandLogo} from "./brand";
+import {ClientUpdateBanner} from "./client-updates";
+import {StorageMigrationOverlay} from "./client-storage";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { NotebookWorkspace } from "./workspace";
 import { Document } from "./document";
 import { request, type NativeState } from "./native";
-import { LanguageSelect } from "./language";
+import {useDialog} from "./dialog";
+import "./connection-guide.css";
 import "@anote/editor/style.css";
 import "./style.css";
 import "../../web/src/style.css";
@@ -13,6 +19,7 @@ import "./note-theme.css";
 import "./workspace.css";
 import "./themes.css";
 import "./ui-system.css";
+import "./mobile-workspace.css";
 import { initializeTheme } from "./theme";
 initializeTheme();
 
@@ -31,6 +38,14 @@ function App() {
     new URLSearchParams(location.search).get("doc"),
   );
   const lastRevision = useRef(-1);
+  const pendingWorkspace=useRef<{scope?:string;page?:"home"|"friends"|"teams"}|null>(null);
+  function closeConnectionDialog(){pendingWorkspace.current=null;setShowConnect(false);}
+  const connectionDialog=useDialog<HTMLDivElement>(closeConnectionDialog,{open:showConnect});
+  function connected(next:NativeState){
+    const target=pendingWorkspace.current;pendingWorkspace.current=null;
+    acceptState(next);setShowConnect(false);
+    if(target&&!next.personal)void window.anote.openServerWorkspace?.(target).catch(error=>setError(translateUI((error as Error).message)));
+  }
   function acceptState(next: NativeState) {
     if (next.stateRevision < lastRevision.current) return;
     lastRevision.current = next.stateRevision;
@@ -58,6 +73,12 @@ function App() {
     });
     return window.anote.onState(acceptState);
   }, []);
+  useEffect(()=>{if(state)void window.anote.rendererReady?.().catch(()=>{});},[!!state]);
+  useEffect(() => {
+    const connect = (event:Event) => {pendingWorkspace.current=(event as CustomEvent).detail?.workspace||null;setShowConnect(true);};
+    window.addEventListener("anote-connect-server", connect);
+    return () => window.removeEventListener("anote-connect-server", connect);
+  }, []);
   async function refresh() {
     const key = identity.current;
     try {
@@ -83,10 +104,7 @@ function App() {
       <Connect
         initial={state}
         startTeam={showConnect}
-        onConnected={(s) => {
-          acceptState(s);
-          setShowConnect(false);
-        }}
+        onConnected={connected}
       />
     );
   if (!state.validationMode)
@@ -99,24 +117,22 @@ function App() {
             history.replaceState(null, "", "/");
             acceptState(await window.anote.logout());
           }}
-          onReconnect={() => setShowConnect(true)}
+          onReconnect={()=>{pendingWorkspace.current=null;setShowConnect(true);}}
         />
         {showConnect && (
           <div className="modal">
-            <div className="modal-shell">
+            <div className="modal-shell" ref={connectionDialog} role="dialog" aria-label={translateUI("连接服务器")}>
               <button
                 className="modal-close"
                 aria-label={translateUI("关闭")}
-                onClick={() => setShowConnect(false)}
+                onClick={closeConnectionDialog}
               >
                 ×
               </button>
               <Connect
                 initial={state}
-                onConnected={(s) => {
-                  acceptState(s);
-                  setShowConnect(false);
-                }}
+                startTeam
+                onConnected={connected}
               />
             </div>
           </div>
@@ -132,7 +148,7 @@ function App() {
     <div className="desktop-app">
       <aside className="sidebar">
         <div className="desktop-brand">
-          <span>A</span>
+          <span className="brand-logo-frame"><BrandLogo size={39}/></span>
           <div>
             <strong>ANote</strong>
             <small>{translateUI("ANote · 研究空间")}</small>
@@ -286,20 +302,17 @@ function App() {
       </div>
       {showConnect && (
         <div className="modal">
-          <div className="modal-shell">
+          <div className="modal-shell" ref={connectionDialog} role="dialog" aria-label={translateUI("连接服务器")}>
             <button
               className="modal-close"
-              onClick={() => setShowConnect(false)}
+              onClick={closeConnectionDialog}
             >
               ×
             </button>
             <Connect
               initial={state}
-              onConnected={(s) => {
-                acceptState(s);
-                setShowConnect(false);
-                void refresh();
-              }}
+              startTeam
+              onConnected={(s)=>{connected(s);void refresh();}}
             />
           </div>
         </div>
@@ -317,14 +330,16 @@ function Connect({
   startTeam?: boolean;
 }) {
   const [serverURL, setURL] = useState(
-      initial.serverURL || import.meta.env.VITE_ANOTE_SERVER_URL || "",
+      (/^https?:\/\//.test(initial.serverURL)?initial.serverURL:initial.connectionServerURL) || import.meta.env.VITE_ANOTE_SERVER_URL || "",
     ),
     [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [ssoEnabled, setSSOEnabled] = useState(false),
-    [localEnabled, setLocalEnabled] = useState(true),
+    [localEnabled, setLocalEnabled] = useState(false),
+    [providerState,setProviderState]=useState<"loading"|"ready"|"error">("loading"),
+    [providerRetry,setProviderRetry]=useState(0),
     [ssoBusy, setSSOBusy] = useState(false),
     [connectMode, setConnectMode] = useState(
       initial.user || startTeam ? "team" : "choose",
@@ -337,7 +352,7 @@ function Connect({
     let current = true;
     setSSOEnabled(false);
     // A new origin must not inherit another service's authentication policy.
-    setLocalEnabled(true);
+    setLocalEnabled(false);setProviderState("loading");setError("");
     const timer = setTimeout(() => {
       void window.anote
         .casdoorProviders(serverURL)
@@ -345,15 +360,16 @@ function Connect({
           if (current) {
             setSSOEnabled(info.casdoor.enabled);
             setLocalEnabled(info.local !== false);
+            setProviderState("ready");
           }
         })
-        .catch(() => {});
+        .catch(error=>{if(current){setProviderState("error");setError(translateUI(connectionError(error)));}});
     }, 400);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [serverURL, connectMode]);
+  }, [serverURL, connectMode,providerRetry]);
   useEffect(
     () => () => {
       void window.anote.cancelCasdoor();
@@ -364,27 +380,27 @@ function Connect({
     return (
       <div className="connect-screen">
         <section className="connect-card">
-          <div className="connect-brand">{translateUI("记")}</div>
+          <div className="connect-brand"><BrandLogo size={42}/></div>
           <h1>ANote</h1>
           <LanguageSelect />
-          <p>{translateUI("选择笔记的保存方式，随时可以切换。")}</p>
+          <p>{translateUI("连接服务器使用已有笔记，或选择目录开始本地记录。")}</p>
+          <button className="primary wide" disabled={busy} onClick={()=>{setError("");setConnectMode("team");}}>{translateUI("连接服务器")}</button>
+          <p className="muted">{translateUI("输入服务地址，登录后访问个人与团队知识库。")}</p>
           <button
-            className="primary wide"
+            className="wide"
             disabled={busy}
             onClick={async () => {
               setBusy(true);
               try {
                 onConnected(await window.anote.enterPersonal());
               } catch (e) {
-                setError(translateUI((e as Error).message));
+                setError(translateUI(connectionError(e)));
               } finally {
                 setBusy(false);
               }
             }}
           >{translateUI("本地个人笔记 ")}</button>
           <p className="muted">{translateUI("无需账号和服务器，笔记与附件保存在自己的目录。 ")}</p>
-          <button className="wide" onClick={() => setConnectMode("team")}>{translateUI("连接团队空间 ")}</button>
-          <p className="muted">{translateUI("连接已有服务，使用团队知识库与多人协作。")}</p>
           {error && <p role="alert">{error}</p>}
         </section>
       </div>
@@ -395,40 +411,43 @@ function Connect({
         className="connect-card"
         onSubmit={async (e) => {
           e.preventDefault();
+          if(providerState!=="ready"||!localEnabled||busy||ssoBusy)return;
           setBusy(true);
+          setError("");
           try {
             onConnected(
               await window.anote.connect({ serverURL, username, password }),
             );
           } catch (e) {
-            setError(translateUI((e as Error).message));
+            setError(translateUI(connectionError(e)));
           } finally {
             setBusy(false);
           }
         }}
       >
-        <div className="connect-brand">{translateUI("记")}</div>
+        <div className="connect-brand"><BrandLogo size={42}/></div>
         <p className="kicker">{translateUI("ANote · 桌面客户端")}</p>
+        <h1>{translateUI("连接服务器")}</h1>
         <LanguageSelect />
-        <h1>{translateUI("研究，从这里继续。")}</h1>
-        <p>{translateUI("连接课题组空间，让笔记与团队、本地目录保持同步。")}</p>
+        <p>{initial.personal?translateUI("登录成功后切换到服务器笔记。本地笔记保留在原目录，不会自动上传。"):translateUI("输入 ANote 服务地址，登录后访问个人与团队知识库。")}</p>
         <button
           type="button"
           className="wide"
+          disabled={busy||ssoBusy}
           onClick={() => setConnectMode("choose")}
-        >{translateUI("本地个人笔记／团队连接 ")}</button>
+        >{translateUI("返回使用方式 ")}</button>
         <label>{translateUI("服务地址 ")}<input
             aria-label={translateUI("服务地址")}
             type="url"
             value={serverURL}
             onChange={(e) => setURL(e.target.value)}
-            disabled={ssoBusy}
+            disabled={ssoBusy||busy}
             required
           />
         </label>
         {ssoEnabled && (
           <button
-            className="wide"
+            className="primary wide"
             type="button"
             disabled={busy || ssoBusy}
             onClick={async () => {
@@ -439,7 +458,7 @@ function Connect({
                   await window.anote.connectCasdoor({ serverURL }),
                 );
               } catch (error) {
-                setError(translateUI((error as Error).message));
+                setError(translateUI(connectionError(error)));
               } finally {
                 setSSOBusy(false);
               }
@@ -474,11 +493,13 @@ function Connect({
               />
             </label>
             <button className="primary wide" disabled={busy || ssoBusy}>
-              {busy ? translateUI("正在连接…") : translateUI("连接研究空间 →")}
+              {busy ? translateUI("正在连接…") : translateUI("登录并连接")}
             </button>
           </>
         )}
-        {!localEnabled && !ssoEnabled && (
+        {providerState==="loading"&&<p role="status">{translateUI("正在读取服务器登录方式…")}</p>}
+        {providerState==="error"&&<button className="wide" type="button" onClick={()=>setProviderRetry(value=>value+1)}>{translateUI("重新读取登录方式")}</button>}
+        {providerState==="ready"&&!localEnabled && !ssoEnabled && (
           <p role="alert">{translateUI("统一认证尚未配置完成，请联系平台管理员。")}</p>
         )}
         {error && (
@@ -486,9 +507,10 @@ function Connect({
             {error}
           </p>
         )}
-        <small>{translateUI("本地缓存由客户端保存，团队数据留在课题组服务器。")}</small>
+        <small>{translateUI("关闭或取消登录会保留当前笔记，登录成功后才切换连接。")}</small>
       </form>
     </div>
   );
 }
-createRoot(document.getElementById("root")!).render(<><App /><MediaViewerHost/></>);
+function connectionError(error:unknown){return (error instanceof Error?error.message:String(error)).replace(/^(?:Error: )?Error invoking remote method '[^']+': (?:Error: )?/,"");}
+createRoot(document.getElementById("root")!).render(<><App /><MediaViewerHost/><ClientUpdateBanner/><StorageMigrationOverlay/></>);

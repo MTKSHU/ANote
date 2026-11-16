@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { api, admin, login, createNote, typeBody, chooseTheme } from "./helpers";
+import { api, admin, login, createNote, typeBody, chooseTheme , openWorkspaceSettings} from "./helpers";
 const password = "Appearance-trash-test-123!";
 async function person(request: APIRequestContext, root: any) {
   const username = "appearance-" + randomUUID().slice(0, 8),
@@ -218,10 +218,7 @@ test("明暗主题即时切换、重开保留；回收站输入名称确认彻�
     });
   };
   const original = await capture();
-  await page
-    .locator(".academic-user")
-    .getByRole("button", { name: "设置", exact: true })
-    .click();
+  await openWorkspaceSettings(page);
   const settings = page.getByRole("dialog", { name: "设置", exact: true });
   await chooseTheme(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -285,10 +282,7 @@ test("明暗主题即时切换、重开保留；回收站输入名称确认彻�
     .click();
   await expect(confirmation).toHaveCount(0);
   await expect(row).toHaveCount(0);
-  await page
-    .locator(".academic-user")
-    .getByRole("button", { name: "设置", exact: true })
-    .click();
+  await openWorkspaceSettings(page);
   await chooseTheme(page, "light");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expect

@@ -6,6 +6,7 @@ import { administrator, user } from "./auth.js";
 import { fail, text } from "./errors.js";
 import { discoverOIDC, DiscoveryError } from "./oidc-discovery.js";
 type Configuration = {
+  wish_review_mode: "direct" | "approval";
   site_name: string;
   public_origin: string;
   allowed_origins: string[];
@@ -149,6 +150,10 @@ export class PlatformController {
     administrator(actor);
     if (!input || typeof input !== "object") fail(400, "配置无效");
     const next = { ...current };
+    if (input.wish_review_mode !== undefined) {
+      if (!["direct","approval"].includes(input.wish_review_mode)) fail(400,"许愿池审核方式无效");
+      next.wish_review_mode=input.wish_review_mode;
+    }
     if (input.site_name !== undefined)
       next.site_name = text(input.site_name, "平台名称", 80);
     if (input.public_origin !== undefined)
@@ -242,7 +247,7 @@ export class PlatformController {
       }
       const row = (
         await client.query(
-          "UPDATE platform_settings SET site_name=$1,public_origin=$2,allowed_origins=$3,auth_mode=$4,oidc_issuer=$5,oidc_client_id=$6,oidc_secret=$7,oidc_application=$8,revision=revision+1,updated_at=now() WHERE revision=$9 RETURNING *",
+          "UPDATE platform_settings SET site_name=$1,public_origin=$2,allowed_origins=$3,auth_mode=$4,oidc_issuer=$5,oidc_client_id=$6,oidc_secret=$7,oidc_application=$8,wish_review_mode=$10,revision=revision+1,updated_at=now() WHERE revision=$9 RETURNING *",
           [
             next.site_name,
             next.public_origin,
@@ -253,6 +258,7 @@ export class PlatformController {
             encrypt(next.oidc_secret),
             next.oidc_application,
             input.revision ?? current.revision,
+            next.wish_review_mode,
           ],
         )
       ).rows[0];
@@ -265,6 +271,7 @@ export class PlatformController {
             auth_mode: next.auth_mode,
             public_origin: next.public_origin,
             secret_changed: !!input.oidc_secret,
+            wish_review_mode: next.wish_review_mode,
           },
         ],
       );

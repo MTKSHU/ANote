@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
+import {normalizeSvgAsset} from "./svg-assets.mjs";
 
-export async function localAsset(request, url, session) {
+export async function localAsset(request, url, session, canReadDocument = () => true) {
   const match = /^\/api\/assets\/([\w-]{1,80})\/file$/.exec(url.pathname);
   if (
     !match ||
@@ -12,6 +13,7 @@ export async function localAsset(request, url, session) {
   )
     return null;
   for (const doc of session.settings.documents) {
+    if (!canReadDocument(doc.id)) continue;
     const root = path.resolve(doc.directory);
     if ((await fs.lstat(root).catch(() => null))?.isSymbolicLink()) continue;
     let current = root,
@@ -52,11 +54,12 @@ export async function localAsset(request, url, session) {
     if (!safe) continue;
     const size = (await fs.stat(file)).size;
     if (asset.bytes !== undefined && asset.bytes !== size) continue;
+    const normalized = await normalizeSvgAsset({...asset,kind:asset.kind||"file",filename:asset.filename||path.basename(asset.path),bytes:size},file);
     let start = 0,
       end = size - 1,
       status = 200;
     const headers = new Headers({
-      "Content-Type": asset.mime || "application/octet-stream",
+      "Content-Type": normalized.mime || "application/octet-stream",
       "Accept-Ranges": "bytes",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",

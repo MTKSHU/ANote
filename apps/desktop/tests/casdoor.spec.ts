@@ -1,3 +1,4 @@
+import {openWorkspaceSettings} from "../../web/tests/helpers";
 import { test, expect, _electron } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -28,7 +29,6 @@ test("Electron 界面经系统浏览器回环完成 OIDC 登录与普通用户�
     args: ["--no-sandbox", "apps/desktop"],
     env: {
       ...process.env,
-      ANOTE_LOCALE: "zh-CN",
       ANOTE_CLIENT_DATA_DIR: profile,
       ANOTE_DESKTOP_TEST: "1",
     },
@@ -42,7 +42,7 @@ test("Electron 界面经系统浏览器回环完成 OIDC 登录与普通用户�
       };
     });
     const page = await application.firstWindow();
-    await page.getByRole("button", { name: "连接团队空间", exact: true }).click();
+    await page.getByRole("button", { name: "连接服务器", exact: true }).click();
     await page.getByLabel("服务地址", { exact: true }).fill(base);
     async function open() {
       await application.evaluate(() => {
@@ -74,13 +74,13 @@ test("Electron 界面经系统浏览器回环完成 OIDC 登录与普通用户�
     expect(member).toBeTruthy();
     expect(member.is_admin).toBe(false);
     await expect(
-      page.getByRole("button", { name: "ANote", exact: true }),
-    ).toBeVisible();
+      page.locator(".academic-brand"),
+    ).toHaveText("ANote");
     const state = await page.evaluate(() => window.anote.state());
     expect(state.user?.id).toBe(member.id);
     expect(state.user?.is_admin).toBe(false);
     expect(state.token).toMatch(/^[\w-]{43}$/);
-    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await openWorkspaceSettings(page);
     await expect(
       page.getByText("此账号已绑定 Casdoor。", { exact: true }),
     ).toBeVisible();

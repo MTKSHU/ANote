@@ -12,9 +12,21 @@
       "types": "./dist/anchors.d.ts",
       "import": "./dist/anchors.js"
     },
+    "./svg": {
+      "types": "./dist/svg.d.ts",
+      "import": "./dist/svg.js"
+    },
+    "./note-links": {
+      "types": "./dist/note-links.d.ts",
+      "import": "./dist/note-links.js"
+    },
     "./id": {
       "types": "./dist/id.d.ts",
       "import": "./dist/id.js"
+    },
+    "./migration-codec": {
+      "types": "./dist/migration-codec.d.ts",
+      "import": "./dist/migration-codec.js"
     }
   },
   "dependencies": {
@@ -24,7 +36,8 @@
     "@tiptap/pm": "3.32.0",
     "@tiptap/starter-kit": "3.32.0",
     "@tiptap/y-tiptap": "3.0.10",
-    "yjs": "^13.6.27"
+    "yjs": "^13.6.27",
+    "@tiptap/extension-paragraph": "3.32.0"
   },
   "license": "Apache-2.0"
 }

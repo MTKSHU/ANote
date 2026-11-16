@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import {fail} from './errors.js';
 
 export const db = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -21,6 +22,7 @@ export async function transaction<T>(
     return result;
   } catch (error) {
     await client.query("ROLLBACK");
+    if((error as any)?.code==='PZA01')fail(409,"知识库已归档，只能阅读，请先恢复知识库后再修改");
     throw error;
   } finally {
     client.release();

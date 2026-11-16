@@ -1,0 +1,79 @@
+.web-update-notice {
+  position: fixed;
+  z-index: 1600;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 24px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border: 1px solid var(--line, #dcdcdc);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  box-shadow: 0 8px 32px #0002;
+  color: var(--ink, #313131);
+  font-size: 13px;
+}
+.web-update-copy {
+  min-width: 0;
+}
+.web-update-copy strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.web-update-copy p {
+  margin: 5px 0 0;
+  color: var(--muted, #737373);
+  line-height: 1.6;
+}
+.web-update-copy .web-update-error {
+  color: var(--danger, #c23838);
+  overflow-wrap: anywhere;
+}
+.web-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+.web-update-actions button {
+  min-height: 34px;
+  padding: 6px 11px;
+  border: 1px solid var(--line, #dcdcdc);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink, #313131);
+  font: inherit;
+  cursor: pointer;
+}
+.web-update-actions .web-update-reload {
+  border-color: var(--accent, #3769bc);
+  color: var(--accent, #3769bc);
+}
+.web-update-actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent, #3769bc) 8%, transparent);
+}
+.web-update-actions button:focus-visible {
+  outline: 2px solid var(--accent, #3769bc);
+  outline-offset: 3px;
+}
+.web-update-actions button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+@media (max-width: 560px) {
+  .web-update-notice {
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px;
+  }
+  .web-update-actions {
+    margin-left: auto;
+  }
+}

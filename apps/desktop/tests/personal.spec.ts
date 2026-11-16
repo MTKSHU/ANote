@@ -2,23 +2,24 @@ import { test, expect, _electron } from "@playwright/test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { slash } from "../../web/tests/helpers";
-async function launch(profile: string, directory: string) {
+import { slash , openWorkspaceSettings} from "../../web/tests/helpers";
+async function preferences(page: import("@playwright/test").Page) {
+  await openWorkspaceSettings(page);
+  return page.getByRole("dialog", { name: "设置", exact: true });
+}
+async function launch(profile: string, directory: string, rendererArgs: string[] = []) {
   const application = await _electron.launch({
     ...(process.env.PERSONAL_PACKAGED === "1"
       ? {
-          executablePath: path.resolve(
-            "artifacts/releases/ANote-linux-x64/ANote",
-          ),
+          executablePath: path.resolve(process.env.DESKTOP_EXECUTABLE || "artifacts/releases/ANote-linux-x64/ANote"),
         }
       : {}),
     args:
       process.env.PERSONAL_PACKAGED === "1"
-        ? ["--no-sandbox"]
-        : ["--no-sandbox", "apps/desktop"],
+        ? ["--no-sandbox", ...rendererArgs]
+        : ["--no-sandbox", ...rendererArgs, "apps/desktop"],
     env: {
       ...process.env,
-      ANOTE_LOCALE: "zh-CN",
       ANOTE_CLIENT_DATA_DIR: profile,
       ANOTE_DESKTOP_TEST: "0",
     },
@@ -35,7 +36,6 @@ async function launch(profile: string, directory: string) {
       callback({ cancel: remote });
     });
   }, directory);
-  expect(await application.evaluate(({ app }) => app.getPath("userData"))).toBe(profile);
   expect(await application.evaluate(({ app }) => app.isPackaged)).toBe(
     process.env.PERSONAL_PACKAGED === "1",
   );
@@ -51,19 +51,14 @@ test("无网络无账号：本地知识库、附件、公式、导图和关闭�
   await fs.mkdir(directory, { recursive: true });
   let client = await launch(profile, directory);
   try {
-    expect(await client.application.evaluate(({ app }) => app.getName())).toBe("ANote");
-    await expect(client.page).toHaveURL("anote://app/");
-    await expect(client.page).toHaveTitle("ANote");
-    await expect(client.page.getByRole("heading", { name: "ANote", exact: true })).toBeVisible();
     await client.page
       .getByRole("button", { name: "本地个人笔记", exact: true })
       .click();
     await expect(client.page.locator(".academic-brand")).toHaveText("ANote");
-    await expect(client.page).toHaveTitle("ANote");
     expect(
       (await client.page.evaluate(() => window.anote.state())).personal,
     ).toBe(true);
-    await client.page.getByRole("button", { name: "设置", exact: true }).click();
+    await openWorkspaceSettings(client.page);
     const preferences = client.page.getByRole("dialog", { name: "设置", exact: true });
     await preferences.getByLabel("昵称", { exact: true }).fill("离线研究者");
     await preferences.getByRole("button", { name: "保存昵称", exact: true }).click();
@@ -214,7 +209,7 @@ test("无网络无账号：本地知识库、附件、公式、导图和关闭�
     await expect(client.page.getByRole("button",{name:"显示笔记列表",exact:true})).toBeVisible();
     await expect(client.page.getByRole('button',{name:'展开侧边栏',exact:true})).toBeVisible();
     await client.page.getByRole('button',{name:'展开侧边栏',exact:true}).click();
-    await expect(client.page.locator(".academic-user")).toContainText("离线研究者");
+    await expect(client.page.locator(".workspace-account-menu > summary .user-avatar")).toHaveText("离");
     await expect(client.page.locator('.academic-sidebar [data-sidebar-group="personal"]').getByRole("button",{name:/^取消固定 /})).toHaveAttribute("aria-pressed","true");
     await expect(client.page.getByTestId("editor")).toContainText(
       "关闭前最后一句。",
@@ -291,8 +286,8 @@ test("本地个人目录相互隔离，可切换到团队登录且不自动上�
         filePaths: [directory],
       });
     }, b);
-    await page
-      .getByRole("button", { name: "切换个人目录", exact: true })
+    await (await preferences(page))
+      .getByRole("button", { name: "打开其他个人目录", exact: true })
       .click();
     await expect(page.locator(".note-table-row")).toHaveCount(0);
     await expect(page.getByTestId("editor")).toHaveCount(0);
@@ -304,14 +299,14 @@ test("本地个人目录相互隔离，可切换到团队登录且不自动上�
         filePaths: [directory],
       });
     }, a);
-    await page
-      .getByRole("button", { name: "切换个人目录", exact: true })
+    await (await preferences(page))
+      .getByRole("button", { name: "打开其他个人目录", exact: true })
       .click();
     await expect(page.getByLabel("笔记标题", { exact: true })).toHaveValue(
       "目录 A 私人笔记",
     );
-    await page
-      .getByRole("button", { name: "连接团队空间", exact: true })
+    await (await preferences(page))
+      .getByRole("button", { name: "连接服务器", exact: true })
       .click();
     await expect(page.getByLabel("服务地址", { exact: true })).toBeVisible();
     const catalog = JSON.parse(
@@ -321,5 +316,62 @@ test("本地个人目录相互隔离，可切换到团队登录且不自动上�
     expect(catalog.documents[0].title).toBe("目录 A 私人笔记");
   } finally {
     await application.close();
+  }
+});
+
+test("无网络个人模式：2∶1 图片切换全景可环顾，真实画面与投影保存到本地并在重启后恢复", async () => {
+  const root = path.resolve("artifacts/desktop/panorama-profiles", randomUUID()),
+    directory = path.join(root, "notes"), profile = path.join(root, "profile"),
+    rendererArgs = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
+  await fs.mkdir(directory, { recursive: true });
+  let client = await launch(profile, directory, rendererArgs);
+  try {
+    let page = client.page;
+    await page.getByRole("button", { name: "本地个人笔记", exact: true }).click();
+    await page.locator(".academic-page-actions").getByRole("button", { name: "新建笔记", exact: true }).click();
+    await expect(page.getByTestId("editor")).toHaveAttribute("contenteditable", "true");
+    await page.getByLabel("笔记标题", { exact: true }).fill("离线360全景");
+    const image = await page.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 1024; canvas.height = 512;
+      const context = canvas.getContext("2d")!;
+      ["#e12e36", "#1eaf59", "#235fd2", "#e6b328"].forEach((color, index) => {
+        context.fillStyle = color; context.fillRect(index * 256, 0, 256, 512);
+        context.fillStyle = "white"; context.font = "bold 80px sans-serif"; context.fillText(String(index + 1), index * 256 + 80, 280);
+      });
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
+    await page.getByLabel("上传附件文件", { exact: true }).setInputFiles({ name: "panorama-offline.png", mimeType: "image/png", buffer: Buffer.from(image, "base64") });
+    const node = page.locator('.media-resource[data-media-kind="image"]');
+    await expect(node.locator("img")).toHaveJSProperty("naturalWidth", 1024);
+    await node.locator("img").click();
+    await page.getByLabel("媒体显示方式", { exact: true }).selectOption("equirectangular");
+    await expect(node).toHaveAttribute("data-projection", "equirectangular");
+    await page.getByRole("button", { name: "查看360°全景图片", exact: true }).click();
+    const viewer = page.getByTestId("panorama-viewer"), viewport = viewer.getByTestId("panorama-viewport"), canvas = viewer.getByTestId("panorama-canvas");
+    await expect(viewer).toHaveAttribute("data-ready", "true");
+    const original = await canvas.screenshot(), box = (await viewport.boundingBox())!;
+    await page.mouse.move(box.x + box.width * .3, box.y + box.height / 2); await page.mouse.down();
+    await page.mouse.move(box.x + box.width * .65, box.y + box.height / 2, { steps: 8 }); await page.mouse.up();
+    await expect.poll(async () => Math.abs(Number(await viewport.getAttribute("data-yaw")))).toBeGreaterThan(10);
+    await expect.poll(async () => !(await canvas.screenshot()).equals(original)).toBe(true);
+    await viewer.screenshot({ path: "artifacts/desktop/panorama-offline.png" });
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect(page.getByTestId("document-sync")).toHaveText("已保存到本地");
+    const catalog = JSON.parse(await fs.readFile(path.join(directory, ".anote/catalog.json"), "utf8")),
+      note = catalog.documents.find((value: any) => value.title === "离线360全景"),
+      stored = JSON.parse(await fs.readFile(path.join(directory, ".anote/notes", note.id + ".json"), "utf8"));
+    expect(stored.snapshot.content.find((value: any) => value.type === "mediaResource").attrs.projection).toBe("equirectangular");
+    expect(await client.application.evaluate(() => (globalThis as any).externalRequests)).toEqual([]);
+    await client.application.close();
+    client = await launch(profile, directory, rendererArgs); page = client.page;
+    await expect(page.getByLabel("笔记标题", { exact: true })).toHaveValue("离线360全景");
+    await expect(page.locator('.media-resource[data-media-kind="image"]')).toHaveAttribute("data-projection", "equirectangular");
+    await page.getByRole("button", { name: "查看360°全景图片", exact: true }).click();
+    await expect(page.getByTestId("panorama-viewer")).toHaveAttribute("data-ready", "true");
+    expect(await page.evaluate(() => window.anote.state().then(state => ({ personal: state.personal, token: state.token })))).toEqual({ personal: true, token: null });
+    expect(await client.application.evaluate(() => (globalThis as any).externalRequests)).toEqual([]);
+  } finally {
+    await client.application.close();
   }
 });

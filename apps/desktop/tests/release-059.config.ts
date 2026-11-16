@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:['table-width.spec.ts','library-archive.spec.ts','local-mcp-056.spec.ts','markdown-assets-057.spec.ts'],workers:1,timeout:180000,expect:{timeout:30000},reporter:[['list'],['json',{outputFile:'../../../artifacts/release-059/desktop/results.json'}]],outputDir:'../../../artifacts/release-059/desktop/test-results'});

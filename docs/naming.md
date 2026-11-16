@@ -19,3 +19,5 @@
 公开版 Compose 默认项目名为 `anote`，隔离回归使用 `anote-test` 和 `anote-validation`。
 
 桌面应用默认使用系统应用配置目录下的 `ANote`；`ANOTE_CLIENT_DATA_DIR` 可显式指定配置目录。发行包名称使用 `ANote-版本-平台-架构`，下载接口仅接受这一命名格式。
+
+0.5.10 的公开构建继续使用上述 ANote 技术标识。少数旧目录名 `.simple-notes` 与 `SimpleNote` 包名仅用于明确的旧数据／安装包兼容检查；默认构建不生成桥接包。Apple Silicon 发行文件名使用 `darwin-arm64`。服务器地址和身份提供者默认留空，由部署者配置。

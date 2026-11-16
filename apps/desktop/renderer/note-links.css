@@ -1,0 +1,29 @@
+.note-link-modal { z-index: 3200; }
+.note-link-picker { box-sizing: border-box; width: min(540px, calc(100vw - 32px)); max-height: min(640px, calc(100dvh - 32px)); display: flex; flex-direction: column; padding: 22px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 80px #1622382b; }
+.note-link-picker > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.note-link-picker h2 { font-size: 19px; margin: 0; }
+.note-link-search { display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--raised); }
+.note-link-search:focus-within { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 15%, transparent); }
+.note-link-search input { width: 100%; min-width: 0; border: 0; background: transparent; padding: 12px 0; color: var(--ink); outline: none; font: inherit; }
+.note-link-results { margin: 12px -6px; min-height: 80px; overflow-y: auto; overscroll-behavior: contain; }
+.note-link-results > button { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; border-radius: 9px; padding: 12px; text-align: left; color: var(--ink); background: transparent; }
+.note-link-results > button[data-active="true"], .note-link-results > button:hover { background: var(--soft); }
+.note-link-results > button > span, .note-references a > span { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.note-link-results strong, .note-references strong { overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
+.note-link-results small, .note-references small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.note-link-results > p { padding: 20px 10px; color: var(--muted); text-align: center; }
+.note-link-picker > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.note-link-picker > footer button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.note-link-error { color: #dc2626; font-size: 13px; }
+.note-references { width: 100%; max-width: 880px; margin: 32px auto 0; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink); }
+.document-region[data-page-width="wide"] .note-references { max-width: 1200px; }
+.document-region[data-page-width="full"] .note-references { max-width: none; }
+.note-references > header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--muted); }
+.note-references h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.note-references > header > span { font-size: 12px; padding: 1px 6px; border-radius: 5px; background: var(--soft); }
+.note-references ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.note-references a { display: flex; gap: 10px; align-items: center; padding: 10px; border: 1px solid transparent; border-radius: 8px; color: var(--ink); text-decoration: none; }
+.note-references a:hover, .note-references a:focus-visible { border-color: var(--line); background: var(--soft); }
+.note-references svg { flex-shrink: 0; color: var(--muted); }
+@media (max-width: 760px) { .note-link-picker { padding: 16px; } .note-link-results > button, .note-references a { min-height: 48px; } }
+@media print { .note-link-modal { display: none !important; } .note-references { break-inside: avoid; } }

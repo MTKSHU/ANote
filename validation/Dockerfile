@@ -8,7 +8,9 @@ COPY packages/editor/package.json ./packages/editor/package.json
 RUN ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
 COPY packages ./packages
 COPY validation ./validation
-RUN npm run build:validation
+COPY scripts/apply-y-tiptap-performance-patch.mjs ./scripts/apply-y-tiptap-performance-patch.mjs
+COPY patches ./patches
+RUN NODE_OPTIONS=--max-old-space-size=1400 GOMAXPROCS=2 UV_THREADPOOL_SIZE=2 npm run build:validation
 ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["node","validation/dist/server/api/main.js"]

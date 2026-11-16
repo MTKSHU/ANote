@@ -8,7 +8,11 @@
       "types": "./dist/research-editor.d.ts",
       "import": "./dist/research-editor.js"
     },
-    "./style.css": "./style.css"
+    "./style.css": "./style.css",
+    "./panorama": {
+      "types": "./dist/panorama-viewer.d.ts",
+      "import": "./dist/panorama-viewer.js"
+    }
   },
   "dependencies": {
     "@anote/document-model": "0.1.0",
@@ -24,6 +28,7 @@
     "mermaid": "12.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "three": "0.186.1",
     "@anote/i18n": "0.1.0"
   },
   "license": "Apache-2.0"

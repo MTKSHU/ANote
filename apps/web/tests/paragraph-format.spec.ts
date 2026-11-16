@@ -46,3 +46,16 @@ test("表格中的当前段落可改标题并协同，不影响相邻单元格�
     await editor.locator("code").click(); await expect(page.locator(".paragraph-format-control")).toHaveCount(0);
   } finally { await context.close(); }
 });
+test("连续输入后段落格式仍可用，切换段落与阅读模式立即更新目标",async({page,request})=>{
+  await setup(page,request);const editor=page.getByTestId("editor");
+  await editor.evaluate(el=>(el as any).editor.commands.setContent({type:"doc",content:[{type:"paragraph",attrs:{blockId:"typing-format-first"},content:[{type:"text",text:"第一段正文"}]},{type:"paragraph",attrs:{blockId:"typing-format-second"},content:[{type:"text",text:"第二段正文"}]}]}));
+  await editor.evaluate(el=>{const editor=(el as any).editor;editor.chain().setTextSelection(editor.state.doc.firstChild.nodeSize-1).focus().run();});
+  const trigger=page.getByRole("button",{name:/^段落格式：/});await expect(trigger).toHaveAttribute("aria-label","段落格式：正文");
+  await page.keyboard.type("continuous",{delay:16});for(let index=0;index<10;index++)await page.keyboard.press("Backspace");
+  await expect(editor.locator('[data-block-id="typing-format-first"]')).toHaveText("第一段正文");await expect(trigger).toBeVisible();await format(page,"标题 2");
+  await expect(editor.locator('h2[data-block-id="typing-format-first"]')).toHaveText("第一段正文");
+  const second=editor.locator('p[data-block-id="typing-format-second"]');await second.click();await expect(trigger).toHaveAttribute("aria-label","段落格式：正文");
+  const box=await second.boundingBox(),button=await trigger.boundingBox();expect(box&&button&&button.y>=box.y-4&&button.y<box.y+box.height).toBe(true);
+  await format(page,"标题 3");await expect(editor.locator('h3[data-block-id="typing-format-second"]')).toHaveText("第二段正文");await expect(editor.locator('h2[data-block-id="typing-format-first"]')).toHaveText("第一段正文");
+  await page.getByRole("button",{name:"阅读",exact:true}).click();await expect(page.locator(".paragraph-format-control")).toHaveCount(0);await page.getByRole("button",{name:"编辑",exact:true}).click();await editor.locator('h3[data-block-id="typing-format-second"]').click();await expect(trigger).toHaveAttribute("aria-label","段落格式：标题 3");
+});

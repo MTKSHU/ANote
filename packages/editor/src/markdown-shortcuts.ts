@@ -4,6 +4,7 @@ import { Plugin } from "@tiptap/pm/state";
 import MarkdownIt from "markdown-it";
 import { mathMarkdown } from "@anote/sync-core/math-markdown";
 import { taskMarkdown } from "@anote/sync-core/task-markdown";
+import { noteIdFromHref } from "@anote/document-model/note-links";
 
 const markdown = new MarkdownIt({ html: false, linkify: true });
 markdown.use(mathMarkdown);
@@ -35,16 +36,16 @@ export const MarkdownShortcuts = Extension.create({
         },
       }),
       new InputRule({
-        find: /(?<!!|\\)\[([^\]\n]+)\]\((https?:\/\/[^\s<>]+|mailto:[^\s<>]+)\)$/i,
+        find: /(?<!!|\\)\[([^\]\n]+)\]\((https?:\/\/[^\s<>]+|mailto:[^\s<>]+|\/\?doc=[0-9a-f-]+)\)$/i,
         handler: ({ state, range, match }) => {
           if (state.selection.$from.parent.type.spec.code || !state.schema.marks.link) return null;
           // Validate with the same Markdown parser used for paste; unsafe URL
           // schemes never become executable links.
           const tokens = markdown.parseInline(match[0], {}),
             href = tokens[0]?.children?.find(token => token.type === "link_open")?.attrGet("href");
-          if (!href || !/^(https?:\/\/|mailto:)/i.test(href)) return null;
+          if (!href || !noteIdFromHref(href)&&!/^(https?:\/\/|mailto:)/i.test(href)) return null;
           state.tr.replaceWith(range.from, range.to,
-            state.schema.text(match[1], [state.schema.marks.link.create({ href, target: "_blank", rel: "noopener noreferrer nofollow" })]));
+            state.schema.text(match[1], [state.schema.marks.link.create({ href, target: noteIdFromHref(href)?null:"_blank", rel: "noopener noreferrer nofollow" })]));
           state.tr.removeStoredMark(state.schema.marks.link);
         },
       }),

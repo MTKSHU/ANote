@@ -1,0 +1,37 @@
+import {test,expect,_electron,type ElectronApplication} from '@playwright/test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {randomUUID,createHash} from 'node:crypto';
+import {api} from '../../web/tests/helpers';
+import {warmDocumentFixture,installWarmDocumentProbe,warmSwitches,verifyWarmBody,documentGuid} from '../../../validation/fixtures/warm-document-053';
+let app:ElectronApplication|undefined;
+test.afterEach(async()=>{await app?.close().catch(()=>{});app=undefined;});
+const label=process.env.ANOTE_WARM_LABEL||'candidate',expectCache=process.env.ANOTE_EXPECT_SESSION_CACHE!=='0',version=process.env.ANOTE_TEST_DESKTOP_VERSION||'0.5.3',root=path.resolve('artifacts/preview-053/desktop',label);
+test('真实桌面包返回17MiB TODO不再恢复全量历史，立即切走的编辑离线和冷启动均保留',async({request})=>{
+  const fixture=await warmDocumentFixture(request),origin=process.env.BASE_URL||'http://anote.internal:3000';expect(origin).toBe('http://anote.internal:3000');
+  const executable=path.resolve(process.env.DESKTOP_EXECUTABLE||'artifacts/stable-053/desktop/releases/ANote-linux-x64/ANote'),asar=path.join(path.dirname(executable),'resources/app.asar'),asarSha256=createHash('sha256').update(await fs.readFile(asar)).digest('hex');
+  if(process.env.ANOTE_EXPECTED_ASAR_SHA256)expect(asarSha256).toBe(process.env.ANOTE_EXPECTED_ASAR_SHA256);
+  const profile=path.join(root,'profiles',randomUUID());await fs.mkdir(profile,{recursive:true});await fs.writeFile(path.join(profile,'settings.json'),JSON.stringify({serverURL:origin}));
+  const launch=async()=>{app=await _electron.launch({executablePath:executable,args:['--no-sandbox','--password-store=basic','--document='+fixture.id],env:{...process.env,ANOTE_CLIENT_DATA_DIR:profile,ANOTE_DESKTOP_TEST:'1'}});expect(await app.evaluate(({app})=>({packaged:app.isPackaged,version:app.getVersion()}))).toEqual({packaged:true,version});return app.firstWindow();};
+  let page=await launch();await installWarmDocumentProbe(page,fixture.id);
+  await app!.evaluate(({ipcMain})=>{
+    const handlers=(ipcMain as any)._invokeHandlers,original=handlers.get('anote:offline-cache-document'),metrics={active:0,calls:[] as any[]};(globalThis as any).__warmNative=metrics;
+    handlers.set('anote:offline-cache-document',async(event:any,input:any)=>{const call={ystateBytes:input.ystate?.length||0,elapsedMs:0},start=performance.now();metrics.active++;metrics.calls.push(call);try{return await original(event,input);}finally{call.elapsedMs=performance.now()-start;metrics.active--;}});
+  });
+  await page.getByRole('button',{name:'连接服务器',exact:true}).click();await page.getByLabel('服务地址',{exact:true}).fill(origin);await page.getByLabel('用户名',{exact:true}).fill(fixture.owner.username);await page.getByLabel('密码',{exact:true}).fill(fixture.owner.password);await page.getByRole('button',{name:'登录并连接',exact:true}).click();
+  let editor=page.getByTestId('editor');await expect(editor.locator('input[type="checkbox"]')).toHaveCount(102);
+  await expect.poll(()=>app!.evaluate((_electron,bytes)=>{const data=(globalThis as any).__warmNative;return data.active===0&&data.calls.some((call:any)=>call.ystateBytes>bytes&&call.elapsedMs>0);},fixture.stats.ystateBytes),{timeout:60000}).toBe(true);
+  const initialNative=await app!.evaluate(()=>(globalThis as any).__warmNative.calls);await app!.evaluate(()=>{(globalThis as any).__warmNative.calls=[];});
+  const performanceResult=await warmSwitches(page,fixture,expectCache);
+  const paragraph=editor.locator(`p[data-block-id="${fixture.targetBlockId}"]`),tail=' 快速切走的修改 '+randomUUID().slice(0,8);await paragraph.click();await page.keyboard.press('End');await page.keyboard.insertText(tail);const text=await paragraph.textContent();
+  await page.locator('.library-note-list .note-list-item').filter({hasText:fixture.control.title}).click();await expect(editor.locator('input[type="checkbox"]')).toHaveCount(0);await page.locator('.library-note-list .note-list-item').filter({hasText:fixture.title}).click();await expect(paragraph).toHaveText(text!);
+  await page.keyboard.press('ControlOrMeta+s');const snapshot=await editor.evaluate(element=>(element as any).editor.getJSON());await expect.poll(async()=>JSON.stringify((await api(request,'GET',`documents/${fixture.id}`,undefined,fixture.owner)).snapshot),{timeout:60000}).toBe(JSON.stringify(snapshot));await verifyWarmBody(request,fixture,snapshot);
+  await expect.poll(()=>app!.evaluate(()=>(globalThis as any).__warmNative.active===0),{timeout:60000}).toBe(true);
+  const nativeCalls=await app!.evaluate(()=>(globalThis as any).__warmNative.calls);if(expectCache)expect(nativeCalls.every((call:any)=>call.ystateBytes<16384)).toBe(true);
+  const currentGuid=await documentGuid(page);await page.evaluate(()=>window.anote.offline(true));await expect(page.getByTestId('editor').locator(`p[data-block-id="${fixture.targetBlockId}"]`)).toHaveText(text!);
+  await page.locator('.library-note-list .note-list-item').filter({hasText:fixture.control.title}).click();await expect(editor.locator('input[type="checkbox"]')).toHaveCount(0);await page.locator('.library-note-list .note-list-item').filter({hasText:fixture.title}).click();await expect(paragraph).toHaveText(text!);if(expectCache)expect(await documentGuid(page)).toBe(currentGuid);
+  const offline=await page.evaluate(async id=>fetch('/api/documents/'+id).then(response=>response.json()),fixture.id);expect(offline.snapshot).toEqual(snapshot);
+  await app!.close();app=undefined;page=await launch();editor=page.getByTestId('editor');await expect(editor.locator(`p[data-block-id="${fixture.targetBlockId}"]`)).toHaveText(text!);expect(await editor.evaluate(element=>(element as any).editor.getJSON())).toEqual(snapshot);await app!.close();app=undefined;
+  expect(createHash('sha256').update(await fs.readFile(asar)).digest('hex')).toBe(asarSha256);
+  await fs.mkdir(root,{recursive:true});await fs.writeFile(path.join(root,'warm-document-native-evidence.json'),JSON.stringify({recordedAt:new Date().toISOString(),label,version,asarSha256,fixture:fixture.stats,performance:performanceResult,initialNative,nativeCalls,bodyAndHistoryPreserved:true,offlineAndColdStartPreserved:true},null,2)+'\n');
+});

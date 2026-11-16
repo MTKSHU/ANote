@@ -1,0 +1,7 @@
+ARG BUILDER_VERSION=0.5.2
+FROM anote-mobile-android-builder:${BUILDER_VERSION}
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libxkbcommon0 libpulse0 libxcomposite1 libxcursor1 libxi6 libxtst6 libxrandr2 && rm -rf /var/lib/apt/lists/*
+RUN sdkmanager --sdk_root=/opt/android-sdk 'emulator' 'system-images;android-35;google_apis;x86_64'
+ENV PATH=/opt/android-sdk/emulator:$PATH
+RUN echo no | avdmanager create avd --force --name anote050 --package 'system-images;android-35;google_apis;x86_64' --device pixel_6
+ENTRYPOINT ["/bin/bash"]

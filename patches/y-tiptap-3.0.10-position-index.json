@@ -1,0 +1,23 @@
+{
+  "format": "anote-pinned-dependency-performance-patch",
+  "package": "@tiptap/y-tiptap",
+  "version": "3.0.10",
+  "helperFile": "patches/y-tiptap-position-lookup.mjs",
+  "helperSha256": "3d785dee1811f2e49c6d9679c15d608908eeb9a824830b41055836ec8e621072",
+  "files": [
+    {
+      "path": "dist/index.js",
+      "originalSha256": "050de77f3c6aab61c1e92830c3ef4406151cbeecb200cc84b5d68c12af2af169",
+      "patchedSha256": "bff4583b3ac3d81c41fa0f401bf53633c97769315dee81753df7b819e1602060",
+      "previousPatchedSha256": "08d6ef326474a13fca2cf7abc3c5736927ce5dea8222244e49f4ffe10baf04ba"
+    },
+    {
+      "path": "dist/index.cjs",
+      "originalSha256": "23074cb886403abad000f01fbd9e0aeb07981efe9fdb1c0cd8f4f2fe5ae75d15",
+      "patchedSha256": "82617badad1124f985f8064bb51195e94934fff2eae21bc076c18724c9647228",
+      "previousPatchedSha256": "993ac53f8cd387121f196bb379926e26806b8a3dd4ba6ed78d46ca5436b309ae"
+    }
+  ],
+  "migrationHelperFile": "patches/y-tiptap-migration-codec.mjs",
+  "migrationHelperSha256": "0bb6e4d8eab49ef6ec1052474d296f21b26fc2382754b3796575d910ef46e802"
+}

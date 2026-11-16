@@ -3,7 +3,7 @@ import type Token from "markdown-it/lib/token.mjs";
 
 /** Keep checkbox groups, ordinary bullets and nested lists distinct. */
 export function taskMarkdown(md:MarkdownIt){
-  md.core.ruler.after("inline","anote_tasks",state=>{
+  md.core.ruler.after("inline","simple_note_tasks",state=>{
     function close(tokens:Token[],start:number){let depth=0;for(let i=start;i<tokens.length;i++){depth+=tokens[i].nesting;if(depth===0)return i;}return tokens.length-1;}
     function convert(tokens:Token[]):Token[]{
       const out:Token[]=[];

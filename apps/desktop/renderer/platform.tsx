@@ -119,6 +119,9 @@ export function PlatformAdmin({
                 placeholder="http://192.168.1.10:3100"
               />
             </label>
+            <h3>{translateUI("许愿池")}</h3>
+            <label>{translateUI("愿望展示方式")}<select aria-label={translateUI("愿望展示方式")} value={config.wish_review_mode || "direct"} onChange={e=>setConfig({...config,wish_review_mode:e.target.value})}><option value="direct">{translateUI("提交后直接显示")}</option><option value="approval">{translateUI("审核通过后显示")}</option></select></label>
+            <p className="muted">{translateUI("仅影响新提交的愿望。待审核或未通过的内容仅提交者和平台管理员可见；管理员可在许愿池处理或删除。")}</p>
             <h3>{translateUI("认证方式")}</h3>
             <label>{translateUI("登录方式 ")}<select
                 aria-label={translateUI("登录方式")}

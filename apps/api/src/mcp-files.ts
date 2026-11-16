@@ -112,7 +112,7 @@ export async function promoteUpload(sql:PoolClient,identity:McpIdentity,id:strin
   }
   await sql.query("INSERT INTO assets(id,space_id,created_by,filename,title,mime,bytes,hash,storage_key,kind,metadata,status,owner_doc_id) VALUES($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,'ready',$11)",[id,space,identity.account.id,row.filename,row.mime,row.bytes,row.hash,originalKey(id),row.kind,row.metadata,docId]);
   await sql.query("UPDATE mcp_uploads SET status='attached',asset_id=$1 WHERE id=$1",[id]);
-  if(["image","video","audio"].includes(row.kind))await sql.query("INSERT INTO jobs(id,kind,asset_id) VALUES($1,'probe',$2)",[randomUUID(),id]);
+  if(["image","video","audio"].includes(row.kind)&&row.mime!=="image/svg+xml")await sql.query("INSERT INTO jobs(id,kind,asset_id) VALUES($1,'probe',$2)",[randomUUID(),id]);
 }
 
 // A model-supplied file URL never gains access to NAS, loopback or cloud metadata.

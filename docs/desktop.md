@@ -1,6 +1,6 @@
 # ANote 桌面客户端
 
-Electron 桌面端复用 React 编辑器、文档模型和同步核心。当前版本 **0.5.0**、协作格式 **4**，应用、快捷方式、程序及发行包名称统一为 **ANote**，见[命名约定](naming.md)。团队侧栏使用管理员设置的平台名称，应用窗口标题为 ANote。
+Electron 桌面端复用 React 编辑器、文档模型和同步核心。当前版本 **0.5.10**、协作格式 **9**，应用、快捷方式、程序及发行包名称统一为 **ANote**，见[命名约定](naming.md)。团队侧栏使用管理员设置的平台名称，应用窗口标题为 ANote。
 
 界面支持简体中文和英文，登录页与设置中可以切换。语言偏好保存在本机，切换前会保存当前笔记；笔记内容和用户填写的名称保持原样。
 
@@ -26,10 +26,10 @@ bash scripts/package-desktop.sh
 
 | 平台 | 包 |
 | --- | --- |
-| Linux Intel／AMD | `ANote-0.5.0-linux-x64.tar.gz` |
-| Windows Intel／AMD | `ANote-0.5.0-win32-x64.zip` |
-| macOS Intel | `ANote-0.5.0-darwin-x64.tar.gz` |
-| macOS Apple Silicon | `ANote-0.5.0-darwin-arm64.tar.gz` |
+| Linux Intel／AMD | `ANote-0.5.10-linux-x64.tar.gz` |
+| Windows Intel／AMD | `ANote-0.5.10-win32-x64.zip` |
+| macOS Intel | `ANote-0.5.10-darwin-x64.tar.gz` |
+| macOS Apple Silicon | `ANote-0.5.10-darwin-arm64.tar.gz` |
 
 清单 `manifest.json` 记录平台、版本、字节数和 SHA-256。可用 `DESKTOP_TARGETS=linux-x64` 只打包指定目标；完整分发校验需要四个包。Electron 运行时下载缓存位于 `anote-electron-downloads` Docker 卷。构建需要访问 npm registry 和 Electron 官方发行资源。
 
@@ -40,3 +40,15 @@ bash scripts/package-desktop.sh
 开发验证见[开发指南](development.md)。容器中的 Linux 验证使用 Xvfb；无网络个人模式测试使用 `--network none`。测试命令中的 `--no-sandbox` 仅用于 root 容器，不是给用户关闭系统安全功能的要求。
 
 发布包可独立上传到 GitHub Releases，也可按[部署指南](../deploy/README.md)显式安装至服务器 `clients` 目录。构建、测试不会自动发布到任何正式实例。
+
+## 0.5.10 离线、备份与更新
+
+“设置 → 离线与备份”可选择是否持续保存当前账号可读取的服务器笔记、目录和附件，并可限制到指定知识库。断网只能读取已经下载的内容；可编辑权限继续生效，新附件上传需要联网。离线修改在重新连接时同步，权限变化和冲突需要处理。不同服务器与账号的数据隔离。
+
+独立备份按正文分块增量保存，未变化内容与附件复用；未修改时不创建重复备份。记录分页并支持单独删除，仍被其他时间点引用的数据不会删除。首次使用新备份格式需要建立基线，旧版完整备份仍可恢复。迁移备份时复制完整账号备份目录。
+
+“笔记与附件工作目录”支持校验文件后迁移，完成前保留原目录；确认新目录正常后再自行清理。保存、历史合并和备份工作由后台线程执行。
+
+用户菜单的“检查更新”提供版本提醒，提醒也进入本设备的通知中心。下载包需通过版本、大小及 SHA-256 检查，保存当前笔记后重启安装。服务器需要发布自己的安装包与 manifest；项目不默认连接任何维护者服务器。默认只构建 ANote 包，历史 SimpleNote 兼容桥接包仅在显式设置 `ANOTE_INCLUDE_LEGACY_BRIDGES=1` 时生成。
+
+桌面本地模式可启用 MCP：独立令牌，只监听本机 127.0.0.1，可经 SSH 隧道访问。切换到服务器模式后停止本地服务。

@@ -1,0 +1,18 @@
+.mcp-personal-token { margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:10px; }
+.mcp-personal-token>summary { cursor:pointer;font-weight:600; }
+.mcp-token-fields { display:flex;align-items:flex-end;gap:12px; }
+.mcp-token-fields>label:first-child { flex:1;min-width:0; }
+.mcp-token-fields :is(input,select),.mcp-token-created input { box-sizing:border-box;width:100%;margin-top:5px;padding:8px; }
+.mcp-personal-token fieldset { display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;border:1px solid var(--line);border-radius:6px; }
+.mcp-personal-token fieldset label { display:inline-flex;align-items:center;gap:6px; }
+.mcp-personal-token fieldset input { width:auto;margin:0; }
+.mcp-token-created { margin-top:14px;padding:12px;background:var(--raised);border-radius:8px; }
+.mcp-token-created input { font-family:monospace;font-size:12px; }
+.mcp-token-created>div { display:flex;flex-wrap:wrap;gap:8px;margin-top:10px; }
+.mcp-auth-kind { display:inline-block;margin-left:8px;color:var(--muted);font-size:11px; }
+@media(max-width:600px) { .mcp-token-fields { flex-direction:column;align-items:stretch; } }
+.local-mcp-settings>label { display:flex;align-items:center;gap:8px;margin-block:12px; }
+.local-mcp-settings>label:has(input[readonly]) { display:grid; }
+.local-mcp-settings input[readonly] { box-sizing:border-box;width:100%;min-width:0;padding:8px; }
+.local-mcp-settings input[type="number"] { width:100px; }
+.local-mcp-settings>button { margin:0 8px 8px 0; }

@@ -1,15 +1,19 @@
 import { t as translateUI } from "@anote/i18n";
 import React, { useEffect, useState } from "react";
+import {ClientUpdatePanel} from "../../desktop/renderer/client-updates";
+import type {ClientUpdateState} from "../../desktop/renderer/native";
+import {MobileClients} from "./mobile-clients";
 const names: Record<string, string> = {
   "win32-x64": "Windows",
   "darwin-x64": "macOS Intel",
   "darwin-arm64": "macOS Apple Silicon",
   "linux-x64": "Linux",
 };
-export function Clients({ onError }: { onError: (error: unknown) => void }) {
+export function Clients({ onError, onConnectServer, updateState, authenticated = true, serverURL }: { onError: (error: unknown) => void; onConnectServer?:()=>void; updateState?:ClientUpdateState; authenticated?:boolean; serverURL?:string }) {
   const [value, setValue] = useState<any>(null);
   useEffect(() => {
-    fetch("/api/client-releases")
+    if (!authenticated) return;
+    fetch("/api/client-releases?brand=ANote")
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok)
@@ -19,10 +23,11 @@ export function Clients({ onError }: { onError: (error: unknown) => void }) {
         setValue(data);
       })
       .catch(onError);
-  }, []);
+  }, [authenticated, serverURL]);
   return (
     <section className="resources-page">
-      <div className="home-heading">
+      <ClientUpdatePanel onConnectServer={onConnectServer} initialState={updateState}/>
+      {authenticated && <><div className="home-heading">
         <div>
           <p className="kicker">YOUR NOTES, WHERE YOU WORK</p>
           <h1>{translateUI("桌面客户端")}</h1>
@@ -31,7 +36,7 @@ export function Clients({ onError }: { onError: (error: unknown) => void }) {
       </div>
       {value?.packages?.length ? (
         <>
-          <div className="client-preview-note">{translateUI("内部预览版 ")}{value.version} · {value.signed ? translateUI("已签名") : translateUI("未签名")}{translateUI("。Linux 已在容器中运行验证；Windows 与 macOS 的原生验收尚待完成。 ")}</div>
+          <div className="client-preview-note">{translateUI("桌面客户端 ")}{value.version} · {value.signed ? translateUI("已签名") : translateUI("未签名")}{translateUI("。Linux 已在容器中运行验证；Windows 与 macOS 的原生验收尚待完成。 ")}</div>
           <div className="client-download-list" role="region" aria-label={translateUI("客户端下载列表")} tabIndex={0}>
             <table className="client-download-table" aria-label={translateUI("桌面客户端下载")}>
               <thead>
@@ -62,7 +67,7 @@ export function Clients({ onError }: { onError: (error: unknown) => void }) {
             <h3>{translateUI("开始使用")}</h3>
             <ol>
               <li>{translateUI("解压对应系统的客户端，以普通用户打开 ANote。")}</li>
-              <li>{translateUI("服务地址填写当前团队平台地址，使用自己的成员账号登录。")}</li>
+              <li>{translateUI("选择“连接服务器”，填写平台地址并使用自己的账号登录；也可选择本地个人笔记。")}</li>
               <li>{translateUI("选择独立的本地工作目录，在笔记中点击“下载到本地目录”。")}</li>
               <li>{translateUI("在客户端编辑富文本，或修改受管 Markdown。发生冲突时先保留本地内容，再选择合并方式。 ")}</li>
             </ol>
@@ -75,7 +80,8 @@ export function Clients({ onError }: { onError: (error: unknown) => void }) {
           <h3>{value ? translateUI("客户端构建正在准备") : translateUI("正在读取客户端构建…")}</h3>
           <p>{translateUI("网页笔记与资源功能可继续使用。")}</p>
         </div>
-      )}
+      )}</>}
+      <MobileClients authenticated={authenticated} onConnectServer={onConnectServer} serverURL={serverURL}/>
     </section>
   );
 }

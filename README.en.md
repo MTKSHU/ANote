@@ -17,6 +17,10 @@ The web and desktop interfaces support English and Simplified Chinese. ANote fol
 
 Personal notes are private by default. Team members can read and comment on content they have access to; editing another person's notes requires permission. Platform administrator status does not grant access to private notes.
 
+Version 0.5.10 adds library archiving, collapsible headings, note links, Markdown exports with attachments, table column sizing and vertical alignment, first-line indentation, 360° panoramas and audio playback. Desktop clients support permission-aware offline copies, chunked incremental backups, storage migration, online updates and local MCP. Compact collaboration encoding and background saving reduce document and backup overhead. Mobile support includes responsive layouts and Android, HarmonyOS and iOS source projects.
+
+The editor uses **schema 9**, with MCP toolset **1.1.10**. Refresh the web application and update desktop clients after upgrading. Valid MCP credentials remain usable; refresh tool definitions and `get_editor_rules`, then prepare a new change preview. See the [upgrade notes](docs/upgrading-0510.md).
+
 ## Installation
 
 The server runs with Docker Engine and Compose V2 and uses PostgreSQL 17. Run these commands from the repository root:
@@ -40,7 +44,7 @@ Manage the site name, public URL and authentication under **Settings → Platfor
 
 The desktop app offers local personal notes and a team connection. Personal mode stores notes, attachments and history in a folder you choose. Connecting to a team never uploads those notes automatically. Team mode connects to your server and isolates caches and sync folders by account and server.
 
-The current desktop preview is **0.5.0**. Binary packages are not stored in this repository. Maintainers can generate Linux, Windows and macOS packages with:
+The current desktop preview is **0.5.10**. Binary packages are not stored in this repository. Maintainers can generate Linux, Windows and macOS packages with:
 
 ```sh
 bash scripts/package-desktop.sh

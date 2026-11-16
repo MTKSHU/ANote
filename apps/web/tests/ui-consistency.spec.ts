@@ -1,7 +1,7 @@
 import {test,expect,type Page,type APIRequestContext} from "@playwright/test";
 import {randomUUID} from "node:crypto";
 import fs from "node:fs/promises";
-import {api,admin,login,chooseTheme,uiGeometry} from "./helpers";
+import {api,admin,login,chooseTheme,uiGeometry, openWorkspaceSettings} from "./helpers";
 async function setup(request:APIRequestContext){
   const root=await admin(request),username="ui-"+randomUUID().slice(0,8),password="Ui-consistency-test-123!";
   await api(request,"POST","users",{username,password,name:"布局检查员",is_admin:true},root);
@@ -24,7 +24,7 @@ test("首页、团队和设置的标题、按钮及页签使用统一尺寸，�
     await page.locator(".academic-navigation").getByRole("button",{name:"首页",exact:true}).click();await chooseTheme(page,theme);await header(theme+" home",".academic-page-header");await tabs(".home-tabs");if(theme === "light")await fs.writeFile("artifacts/web/ui-geometry-web.json",JSON.stringify(await uiGeometry(page),null,2));
     await page.getByTestId("personal-libraries").click();await header(theme+" personal",".academic-page-header");await expect(page.locator(".library-view-toolbar button").first()).toHaveCSS("font-size","13px");await expect(page.locator(".library-view-toolbar button").first()).toHaveCSS("min-height","36px");
     await page.goto("/?team="+team.id);await expect(page.locator(".team-heading h1")).toHaveText(team.name);await header(theme+" team",".team-heading");await tabs(".team-hub .management-tabs");await page.getByRole("button",{name:"知识库",exact:true}).click();await header(theme+" team libraries",".team-heading");
-    await page.locator(".academic-user").getByRole("button",{name:"设置",exact:true}).click();const settings=page.getByRole("dialog",{name:"设置",exact:true});await tabs(".academic-settings>nav");await expect(settings.getByRole("button",{name:"关闭",exact:true})).toHaveCSS("width","32px");await page.screenshot({path:`artifacts/web/ui-system-${theme}.png`});await page.keyboard.press("Escape");
+    await openWorkspaceSettings(page);const settings=page.getByRole("dialog",{name:"设置",exact:true});await tabs(".academic-settings>nav");await expect(settings.getByRole("button",{name:"关闭",exact:true})).toHaveCSS("width","32px");await page.screenshot({path:`artifacts/web/ui-system-${theme}.png`});await page.keyboard.press("Escape");
   }
   await page.setViewportSize({width:1000,height:760});await page.getByTestId("personal-libraries").click();expect(await page.locator(".academic-main").evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
 });

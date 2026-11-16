@@ -35,6 +35,7 @@ import {
   fileHash,
   receiveChunk,
   describeFile,
+  normalizeSvgAsset,
   sendFile,
 } from "./storage.js";
 
@@ -64,6 +65,30 @@ export const assetView = (row: any) => {
     url: `/api/assets/${row.id}/file`,
   };
 };
+// The cursor counts SQL candidates, not visible items. A legacy SVG may move
+// from file to image after inspecting the original, while a disguised .svg
+// remains a file. Fill each page and resume at its first unreturned match.
+async function assetPage(load: (offset: number, limit: number) => Promise<any[]>, start: number, kind: string, size = 40) {
+  const items: any[] = [], batch = Math.max(64, size + 1), budget = Math.max(512, size * 2);
+  let cursor = start;
+  while (cursor - start < budget) {
+    const limit = Math.min(batch, budget - (cursor - start)), rows = await load(cursor, limit);
+    for (let offset = 0; offset < rows.length; offset += 32) {
+      const normalized = await Promise.all(rows.slice(offset, offset + 32).map(normalizeSvgAsset));
+      for (const row of normalized) {
+        if (!kind || row.kind === kind) {
+          if (items.length === size) return {items, nextOffset: cursor};
+          items.push(assetView(row));
+        }
+        cursor++;
+      }
+    }
+    if (rows.length < limit) return {items, nextOffset: null};
+  }
+  // A bounded request can return a short/empty page with a continuation when
+  // many candidates fail inspection. Never scan an unbounded library in I/O.
+  return {items, nextOffset: cursor};
+}
 export const localAssetPath = (row: any) =>
   `assets/${row.id}${/^\.[a-z0-9]{1,12}$/.test(path.extname(row.filename).toLowerCase()) ? path.extname(row.filename).toLowerCase() : ".bin"}`;
 export async function assetFor(
@@ -98,7 +123,7 @@ export async function assetFor(
   ) {
     /* Surviving legacy records retain read access after the original library is removed. */
   } else await spaceRole(account, row.space_id, action,sql);
-  return row;
+  return normalizeSvgAsset(row);
 }
 async function ownedUpload(account: User, id: string) {
   const row = (
@@ -161,7 +186,7 @@ export class AssetsController {
           return copy;
         });
       }
-      results.push({ ...assetView(asset), localPath: localAssetPath(asset) });
+      results.push({ ...assetView(await normalizeSvgAsset(asset)), localPath: localAssetPath(asset) });
     }
     await transaction(async (client) => {
       for (const asset of results)
@@ -183,27 +208,25 @@ export class AssetsController {
       doc = await documentRole(account, identifier(id));
     const start = Number(offset);
     if (!Number.isSafeInteger(start) || start < 0) fail(400, "分页位置无效");
-    const rows = (
+    const filter = optionalText(kind, 30);
+    return assetPage(async (cursor, limit) => (
       await db.query(
         `SELECT a.*,d.title AS note_title FROM assets a LEFT JOIN documents d ON d.id=a.owner_doc_id
       WHERE (a.space_id=$1 OR (a.space_id IS NULL AND (a.owner_doc_id=$7 OR EXISTS(SELECT 1 FROM document_assets da WHERE da.asset_id=a.id AND da.doc_id=$7)))) AND NOT a.archived AND ($2='' OR a.title ILIKE '%'||$2||'%' OR a.filename ILIKE '%'||$2||'%' OR array_to_string(a.tags,' ') ILIKE '%'||$2||'%')
-      AND ($3='' OR a.kind=$3) AND (a.owner_doc_id IS NULL OR ${readableDocumentSQL("d", "$5", "$6")})
-      ORDER BY a.created_at DESC,a.id LIMIT 41 OFFSET $4`,
+      AND ($3='' OR a.kind=$3 OR ($3='image' AND a.kind='file' AND lower(a.filename) LIKE '%.svg')) AND (a.owner_doc_id IS NULL OR ${readableDocumentSQL("d", "$5", "$6")})
+      ORDER BY a.created_at DESC,a.id LIMIT $8 OFFSET $4`,
         [
           doc.space_id,
           optionalText(query, 200),
-          optionalText(kind, 30),
-          start,
+          filter,
+          cursor,
           account.id,
           account.is_admin,
           id,
+          limit,
         ],
       )
-    ).rows;
-    return {
-      items: rows.slice(0, 40).map(assetView),
-      nextOffset: rows.length > 40 ? start + 40 : null,
-    };
+    ).rows, start, filter);
   }
   @Get("resource-limits") limits() {
     return { chunk_bytes: CHUNK_BYTES, max_asset_bytes: MAX_ASSET_BYTES };
@@ -410,13 +433,13 @@ export class AssetsController {
         ).rows[0];
         if (!row) fail(404, "上传任务已删除");
         if (row.status === "complete")
-          return assetView(
+          return assetView(await normalizeSvgAsset(
             (
               await client.query("SELECT * FROM assets WHERE id=$1", [
                 row.asset_id,
               ])
             ).rows[0],
-          );
+          ));
         if (row.status !== "uploading" || row.offset_bytes !== row.bytes)
           fail(409, "文件尚未传输完整");
         const staging = storagePath("uploads", id + ".part"),
@@ -478,7 +501,7 @@ export class AssetsController {
             ],
           )
         ).rows[0];
-        if (["image", "video", "audio"].includes(kind))
+        if (["image", "video", "audio"].includes(kind) && mime !== "image/svg+xml")
           await client.query(
             "INSERT INTO jobs(id,kind,asset_id) VALUES($1,'probe',$2)",
             [randomUUID(), id],
@@ -503,36 +526,43 @@ export class AssetsController {
   }
   @Get("assets") async list(
     @Req() req: Request,
+    @Res({passthrough: true}) res: Response,
     @Query("space_id") value: string,
     @Query("q") query = "",
     @Query("kind") kind = "",
     @Query("archived") archived = "false",
+    @Query("offset") offset = "0",
   ) {
     const account = await user(req),
       space = identifier(value);
     await spaceRole(account, space);
-    return (
+    const start = Number(offset);
+    if (!Number.isSafeInteger(start) || start < 0) fail(400, "分页位置无效");
+    const filter = optionalText(kind, 30);
+    const result = await assetPage(async (cursor, limit) => (
       await db.query(
-        `SELECT a.* FROM assets a WHERE ${readableAssetSQL} AND space_id=$1 AND archived=$2 AND ($3='' OR title ILIKE '%'||$3||'%' OR filename ILIKE '%'||$3||'%' OR description ILIKE '%'||$3||'%' OR array_to_string(tags,' ') ILIKE '%'||$3||'%') AND ($4='' OR kind=$4) ORDER BY created_at DESC LIMIT 500`,
+        `SELECT a.* FROM assets a WHERE ${readableAssetSQL} AND space_id=$1 AND archived=$2 AND ($3='' OR title ILIKE '%'||$3||'%' OR filename ILIKE '%'||$3||'%' OR description ILIKE '%'||$3||'%' OR array_to_string(tags,' ') ILIKE '%'||$3||'%') AND ($4='' OR kind=$4 OR ($4='image' AND kind='file' AND lower(filename) LIKE '%.svg')) ORDER BY created_at DESC,id LIMIT $7 OFFSET $8`,
         [
           space,
           archived === "true",
           optionalText(query, 200),
-          optionalText(kind, 30),
+          filter,
           account.id,
           account.is_admin,
+          limit,
+          cursor,
         ],
       )
-    ).rows.map(assetView);
+    ).rows, start, filter, 500);
+    if (result.nextOffset !== null) res.setHeader("X-Next-Offset", String(result.nextOffset));
+    return result.items;
   }
   @Get("assets/:id") async get(@Req() req: Request, @Param("id") id: string) {
     const account = await user(req),
       asset = await assetFor(account, identifier(id));
-    const role = asset.owner_doc_id
-      ? (await documentRole(account, asset.owner_doc_id)).role
-      : asset.space_id
-        ? await spaceRole(account, asset.space_id)
-        : "viewer";
+    // assetFor already checks reading, including a legacy asset referenced by
+    // a specifically shared note. Library membership only grants editing.
+    const role=(await db.query("SELECT CASE WHEN $2::text IS NOT NULL THEN effective_document_role($1,$2) WHEN $3::text IS NOT NULL THEN effective_space_role($1,$3) ELSE NULL END AS role",[account.id,asset.owner_doc_id,asset.space_id])).rows[0]?.role||"viewer";
     return {
       ...assetView(asset),
       can_edit: ["admin", "editor"].includes(role),
@@ -583,7 +613,7 @@ export class AssetsController {
       )
     ).rows[0];
     if (!result) fail(409, "资源资料已被其他成员修改，请刷新后重试");
-    return assetView(result);
+    return assetView(await normalizeSvgAsset(result));
   }
   @Get("assets/:id/file") async file(
     @Req() req: Request,
@@ -608,7 +638,10 @@ export class AssetsController {
   ) {
     const row = await assetFor(await user(req), identifier(id)),
       thumbnail = row.metadata?.thumbnail;
-    if (!thumbnail?.key) fail(404, "预览图尚未生成");
+    if (!thumbnail?.key) {
+      if (row.mime === "image/svg+xml") return sendFile(req, res, storagePath("originals", row.storage_key), {mime: row.mime, filename: row.filename, hash: row.hash, inline: true});
+      fail(404, "预览图尚未生成");
+    }
     await sendFile(req, res, storagePath("derived", thumbnail.key), {
       mime: "image/jpeg",
       filename: row.title + ".jpg",

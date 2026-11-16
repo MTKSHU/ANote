@@ -1,0 +1,15 @@
+import {test,expect} from "@playwright/test";
+import {person} from "./mcp-helpers";
+import {api,login,slash,chooseTheme} from "./helpers";
+test("左右／上下方向保存与读取，双击四个区域查看对应原图，拖动不复制图片，阅读调整不改正文",async({page,request})=>{
+  const owner=await person(request),book=await api(request,"POST","spaces",{kind:"personal",name:"上下对比"},owner),note=await api(request,"POST","documents",{space_id:book.id,title:"方向与双击预览"},owner);await login(page,owner);await page.goto("/?doc="+note.id);await expect(page.getByTestId("editor")).toBeVisible();await slash(page,"双图对比");await page.getByLabel("上传附件文件",{exact:true}).setInputFiles(["artifacts/server/fixtures/sample.png","artifacts/server/fixtures/wide.png"]);
+  const block=page.getByTestId("image-comparison"),canvas=block.getByRole("slider",{name:"对比位置"}),viewer=page.getByRole("dialog",{name:"媒体预览",exact:true});await expect(block.locator("img")).toHaveCount(2);const sources=await block.locator("img").evaluateAll(images=>images.map(image=>(image as HTMLImageElement).getAttribute("src")));
+  for(const [direction,label] of [["horizontal","左右对比"],["vertical","上下对比"]]) {
+    await block.getByRole("button",{name:label,exact:true}).click();await expect(canvas).toHaveAttribute("aria-orientation",direction);await block.getByRole("button",{name:"复位",exact:true}).click();const bounds=(await canvas.boundingBox())!;
+    for(const [index,fraction] of [[0,.25],[1,.75]]) {
+      await canvas.dblclick({position:{x:bounds.width*(direction==="horizontal"?fraction:.5),y:bounds.height*(direction==="vertical"?fraction:.5)}});await expect(viewer).toBeVisible();await expect(viewer.locator("img")).toHaveAttribute("src",sources[index]!);await viewer.getByRole("button",{name:"放大图片",exact:true}).click();await expect(viewer.locator(".media-lightbox-stage")).toHaveAttribute("data-zoom","1.25");await page.keyboard.press("Escape");await expect(viewer).toHaveCount(0);await expect(canvas).toHaveAttribute("aria-valuenow","50");
+    }
+  }
+  const bounds=(await canvas.boundingBox())!;await page.mouse.move(bounds.x+bounds.width*.5,bounds.y+bounds.height*.2);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.5,bounds.y+bounds.height*.8,{steps:10});await page.mouse.up();await expect.poll(async()=>Number(await canvas.getAttribute("aria-valuenow"))).toBeGreaterThan(75);await expect(page.getByTestId("editor").locator('.media-resource')).toHaveCount(0);await page.keyboard.press("ControlOrMeta+s");await expect(page.getByTestId("document-sync")).toHaveText("已保存");await page.reload();await expect(canvas).toHaveAttribute("aria-orientation","vertical");
+  const before=(await api(request,"GET",`documents/${note.id}`,undefined,owner)).hash;await page.getByRole("button",{name:"阅读",exact:true}).click();await block.getByRole("button",{name:"左右对比",exact:true}).click();expect((await api(request,"GET",`documents/${note.id}`,undefined,owner)).hash).toBe(before);for(const theme of ["light","dark"] as const){await chooseTheme(page,theme);await expect(page.locator("html")).not.toHaveClass(/theme-changing/);await block.screenshot({path:`artifacts/web/comparison-directions-${theme}.png`});}
+});

@@ -1,11 +1,11 @@
 {
   "name": "anote-desktop",
   "productName": "ANote",
-  "version": "0.5.0",
+  "version": "0.5.10",
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",
-  "description": "ANote：个人离线笔记与团队协作",
+  "description": "ANote：个人笔记与服务器知识库",
   "author": "ANote Research Team",
   "license": "Apache-2.0"
 }

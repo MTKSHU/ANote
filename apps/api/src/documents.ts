@@ -32,8 +32,17 @@ import { fail, text, optionalText, identifier } from "./errors.js";
 import type { PoolClient } from "pg";
 import { localAssetPath, assetFor } from "./assets.js";
 import { acquireDocument } from "./document-lock.js";
+import {withStateEncodingLock} from './state-encoding-lock.js';
+import {requireDocumentStateCapability,requireStateCapability,requireCompatibleDocumentUpdate} from './document-state-policy.js';
+import {scanDocumentMigrationEncoding,setDocumentMigrationEncoding,validateDocumentMigrationValues} from '@anote/document-model/migration-codec';
 import { noteHash } from "./mcp-model.js";
 import {noteMovePlan} from "./note-move.js";
+import {notifyNoteMentions,notifyComment} from "./social.js";
+import {prepareHistoryState,writeHistoryVersion,migrateHistoryBatch} from "./history-state-store.js";
+import type {PreparedHistoryState} from "./history-state-codec.js";
+import {initializeDocumentEncoding} from './document-state-rollout.js';
+import {acquireLibraryActivity,acquireLibraryTransition} from './library-activity.js';
+import {archiveSpace} from './workspaces.js';
 
 const versionEditorsSQL = `COALESCE((SELECT json_agg(json_build_object('id',ids.id,'name',COALESCE(e.name,'已删除用户')) ORDER BY COALESCE(e.name,''),ids.id) FROM unnest(v.editor_ids) AS ids(id) LEFT JOIN users e ON e.id=ids.id),'[]'::json) AS editors`;
 
@@ -66,6 +75,8 @@ export class Documents {
   server!: Server;
   private historyTimer?: ReturnType<typeof setInterval>;
   private historyTask?: Promise<void>;
+  private historyStateTimer?: ReturnType<typeof setInterval>;
+  private historyStateTask?: Promise<unknown>;
   private editorClock = 0;
   private editorUpdates = new Map<string, Map<string, number>>();
   private messageLocks = new WeakMap<object,()=>void>();
@@ -75,6 +86,15 @@ export class Documents {
       address: "0.0.0.0",
       quiet: true,
       stopOnSignals: false,
+      websocketOptions: {
+        perMessageDeflate: {
+          serverNoContextTakeover: true,
+          clientNoContextTakeover: true,
+          threshold: 4096,
+          concurrencyLimit: 2,
+          zlibDeflateOptions: { level: 3 },
+        },
+      },
       debounce: 300,
       maxDebounce: 1500,
       async onRequest({ request, response }) {
@@ -82,7 +102,7 @@ export class Documents {
         return Promise.reject();
       },
       onAuthenticate: async ({ token, documentName, connectionConfig }) => {
-        let credentials: { schema?: number; token?: string } = {};
+        let credentials: { schema?: number; token?: string; migrationEncoding?:number } = {};
         try {
           credentials = JSON.parse(token);
         } catch {}
@@ -103,32 +123,44 @@ export class Documents {
         const account = await tokenUser(token),
           doc = await documentRole(account, documentName),
           role = doc.role;
+        await requireDocumentStateCapability(documentName,credentials.migrationEncoding);
         connectionConfig.readOnly =
           doc.archived || !["admin", "editor"].includes(role);
-        return { account, token };
+        return { account, token, migrationEncoding:credentials.migrationEncoding||1 };
       },
       beforeHandleMessage: async ({ context, documentName, connection }) => {
-        const release=await acquireDocument(documentName);
+        const release=await this.acquireActivity(documentName);
         try {
         const account = await tokenUser(context.token),
           doc = await documentRole(account, documentName),
           role = doc.role;
+        await requireDocumentStateCapability(documentName,context.migrationEncoding);
         connection.readOnly =
           doc.archived || !["admin", "editor"].includes(role);
         this.messageLocks.set(connection,release);
         } catch(error) {release();throw error;}
       },
-      onLoadDocument: async ({ documentName }) => {
+      beforeSync: async ({document,documentName,context,connection,type,payload})=>{
+        if(type===0||connection.readOnly)return;
+        try{const encoding=await requireDocumentStateCapability(documentName,context.migrationEncoding);requireCompatibleDocumentUpdate(document,payload,encoding);}
+        catch(error){this.messageLocks.get(connection)?.();this.messageLocks.delete(connection);throw error;}
+      },
+      onLoadDocument: async ({ documentName, document, context }) => withStateEncodingLock(documentName,async()=>{
         const row = (
-          await db.query("SELECT ystate FROM documents WHERE id=$1", [
+          await db.query("SELECT ystate,state_encoding FROM documents WHERE id=$1", [
             documentName,
           ])
         ).rows[0];
         if (!row) throw new Error("Document not found");
-        const document = new Y.Doc();
+        if(context?.source!=='api')requireStateCapability(row.state_encoding,context?.migrationEncoding);
+        // Hocuspocus already owns the live document. Returning a separate
+        // Y.Doc makes its load hook encode that document and decode the same
+        // complete history again before synchronization can start.
         Y.applyUpdate(document, row.ystate);
-        return document;
-      },
+        validateDocumentMigrationValues(document);
+        if(row.state_encoding===1&&scanDocumentMigrationEncoding(document)>1)throw new Error('笔记编码元信息不一致，需管理员校验');
+        if(row.state_encoding===2)setDocumentMigrationEncoding(document,2);
+      }),
       onChange: async ({ documentName, transactionOrigin, connection }) => {
         const actor = connection?.context?.account?.id;
         if ((transactionOrigin as any)?.source !== "connection" || !actor || connection?.readOnly) return;
@@ -160,23 +192,32 @@ export class Documents {
           });
     }, 5000);
     this.historyTimer.unref();
+    // Legacy conversion is independently gated. It verifies and references
+    // copied objects but retains the old bytes unless an operator explicitly
+    // enables the separate legacy-release gate.
+    if(process.env.ANOTE_HISTORY_MIGRATE_LEGACY==='1'){
+      this.historyStateTimer=setInterval(()=>{if(!this.historyStateTask)this.historyStateTask=migrateHistoryBatch({limit:1}).catch(()=>console.error('Historical state shadow conversion failed')).finally(()=>{this.historyStateTask=undefined;});},30000);
+      this.historyStateTimer.unref();
+    }
   }
   private async captureHistory() {
     const candidates = (
       await db.query(
-        `SELECT d.id FROM documents d JOIN LATERAL (SELECT created_at,snapshot FROM document_versions WHERE doc_id=d.id ORDER BY created_at DESC LIMIT 1) v ON true WHERE d.snapshot IS DISTINCT FROM v.snapshot AND v.created_at<=now()-interval '60 seconds' AND NOT d.archived AND d.deleted_at IS NULL LIMIT 500`,
+        `SELECT d.id FROM documents d JOIN LATERAL (SELECT created_at,snapshot FROM document_versions WHERE doc_id=d.id ORDER BY created_at DESC LIMIT 1) v ON true WHERE d.snapshot IS DISTINCT FROM v.snapshot AND v.created_at<=now()-interval '60 seconds' AND NOT d.archived AND d.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM spaces s WHERE s.id=d.space_id AND s.archived) LIMIT 500`,
       )
     ).rows;
     for (const candidate of candidates)
-      await locked("store:" + candidate.id, () =>
-        transaction(async (client) => {
+      await locked("store:" + candidate.id, async () => {
+        const captured=(await db.query('SELECT ystate,state_revision FROM documents WHERE id=$1',[candidate.id])).rows[0];if(!captured)return;
+        const historyState=await prepareHistoryState(captured.ystate);
+        return transaction(async (client) => {
           const doc = (
             await client.query(
-              "SELECT snapshot,ystate,pending_editor_ids FROM documents WHERE id=$1 FOR UPDATE",
+              "SELECT snapshot,pending_editor_ids,state_revision FROM documents WHERE id=$1 FOR UPDATE",
               [candidate.id],
             )
           ).rows[0];
-          if (!doc) return;
+          if (!doc||String(doc.state_revision)!==String(captured.state_revision)) return;
           const latest = (
             await client.query(
               "SELECT hash,created_at FROM document_versions WHERE doc_id=$1 ORDER BY created_at DESC LIMIT 1",
@@ -189,14 +230,11 @@ export class Documents {
             (!latest ||
               Date.now() - new Date(latest.created_at).getTime() >= 60000)
           ) {
-            await client.query(
-              "INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,source,editor_ids) VALUES($1,$2,$3,$4,$5,'automatic',$6)",
-              [randomUUID(), candidate.id, doc.snapshot, doc.ystate, hash, doc.pending_editor_ids],
-            );
+            await writeHistoryVersion(client,{id:randomUUID(),docId:candidate.id,snapshot:doc.snapshot,state:historyState,hash,source:'automatic',editorIds:doc.pending_editor_ids});
             await client.query("UPDATE documents SET pending_editor_ids='{}' WHERE id=$1", [candidate.id]);
           }
-        }),
-      );
+        });
+      });
   }
   disconnect(id: string) {
     for (const connection of this.server.hocuspocus.documents
@@ -205,6 +243,35 @@ export class Documents {
       connection.close();
       connection.webSocket.close(1012, "Document permissions changed");
     }
+  }
+  private async acquireActivity(id:string){
+    const releaseDocument=await acquireDocument(id);
+    try{
+      const row=(await db.query("SELECT space_id FROM documents WHERE id=$1",[id])).rows[0];
+      const releaseLibrary=row?await acquireLibraryActivity(row.space_id):()=>{};
+      return ()=>{releaseLibrary();releaseDocument();};
+    }catch(error){releaseDocument();throw error;}
+  }
+  async archiveLibrary(account:User,id:string,input:any){
+    if(typeof input?.archived!=="boolean")fail(400,"知识库归档设置无效");
+    await spaceRole(account,id,"archive");
+    const release=await acquireLibraryTransition(id);
+    try{
+      await spaceRole(account,id,"archive");
+      const current=(await db.query("SELECT archived,archive_revision FROM spaces WHERE id=$1",[id])).rows[0];
+      if(current.archived!==input.archived&&input.revision!==undefined&&String(input.revision)!==String(current.archive_revision))fail(409,"知识库归档状态已变化，请刷新后重试");
+      const open=[...this.server.hocuspocus.documents.keys()];
+      const live=open.length?(await db.query("SELECT id FROM documents WHERE space_id=$1 AND id=ANY($2::text[])",[id,open])).rows:[];
+      // The exclusive library gate has drained all accepted API/WS edits.
+      // Flush only live documents before making the library read-only.
+      if(input.archived&&!current.archived)for(const row of live){
+        const document=this.server.hocuspocus.documents.get(row.id);
+        if(document&&this.editorUpdates.get(row.id)?.size)await this.persist(row.id,document,null,"collaboration",true);
+      }
+      const result=await archiveSpace(account,id,input);
+      if(current.archived!==input.archived)for(const row of live)this.disconnect(row.id);
+      return result;
+    }finally{release();}
   }
   async checkpointLive(ids: string[], actor: string) {
     for (const id of ids) {
@@ -224,10 +291,10 @@ export class Documents {
     id: string,
     fn: (document: Y.Doc) => Promise<T> | T,
   ): Promise<T> {
-    const release=await acquireDocument(id);
+    const release=await this.acquireActivity(id);
     try {
     const connection = await this.server.hocuspocus.openDirectConnection(id, {
-      source: "api",
+      source: "api",migrationEncoding:2,
     });
     try {
       return await fn(connection.document!);
@@ -243,9 +310,15 @@ export class Documents {
     source: string,
     force = false,
     extra?: (client: PoolClient) => Promise<void>,
+    before?: (client: PoolClient) => Promise<void>,
   ) {
     return locked("store:" + id, async () => {
-      let captured: [string, number][] = [];
+      if(source==='collaboration'&&(await db.query("SELECT 1 FROM documents d JOIN spaces s ON s.id=d.space_id WHERE d.id=$1 AND s.archived",[id])).rowCount){const value=snapshot(document);return {snapshot:value,hash:digest(stable(value)),versionId:undefined};}
+      const value=snapshot(document),state=Buffer.from(Y.encodeStateAsUpdate(document)),hash=digest(stable(value));
+      const captured:[string,number][]=[...(this.editorUpdates.get(id)||[])];
+      const hint=(await db.query('SELECT hash,created_at FROM document_versions WHERE doc_id=$1 ORDER BY created_at DESC LIMIT 1',[id])).rows[0];
+      let historyState:PreparedHistoryState|undefined;
+      if((!hint||hint.hash!==hash||source==='checkpoint')&&(force||!hint||Date.now()-new Date(hint.created_at).getTime()>=60000))historyState=await prepareHistoryState(state);
       const result = await transaction(async (client) => {
         const old = (
           await client.query(
@@ -256,7 +329,6 @@ export class Documents {
         if (!old) {
           if (source === "collaboration") {
             this.editorUpdates.delete(id);
-            const value = snapshot(document);
             return {
               snapshot: value,
               hash: digest(stable(value)),
@@ -265,22 +337,20 @@ export class Documents {
           }
           fail(404, "文档不存在");
         }
-        const value = snapshot(document),
-          state = Buffer.from(Y.encodeStateAsUpdate(document)),
-          hash = digest(stable(value)),
-          changed = hash !== digest(stable(old.snapshot));
-        captured = [...(this.editorUpdates.get(id) || [])];
+        if (before) await before(client);
+        const changed = hash !== digest(stable(old.snapshot));
         const editors = [...new Set<string>([
           ...(old.pending_editor_ids || []),
           ...(changed ? captured.map(([userId]) => userId) : []),
           // Checkpoint callers may merely flush another person's live edits.
           // Only API operations that actually replace content add their actor.
-          ...(changed && actor && ["markdown", "restore"].includes(source) ? [actor] : []),
+          ...(changed && actor && ["markdown", "restore", "offline"].includes(source) ? [actor] : []),
         ])];
         await client.query(
-          "UPDATE documents SET ystate=$1,snapshot=$2,revision=revision+$3,updated_at=CASE WHEN $3=1 THEN now() ELSE updated_at END,pending_editor_ids=$5 WHERE id=$4",
+          "UPDATE documents SET ystate=$1,snapshot=$2,revision=revision+$3,updated_at=CASE WHEN $3=1 THEN now() ELSE updated_at END,pending_editor_ids=$5,last_editor_ids=CASE WHEN $3=1 AND cardinality($5::text[])>0 THEN $5 ELSE last_editor_ids END WHERE id=$4",
           [state, value, changed ? 1 : 0, id, editors],
         );
+        if(changed)await notifyNoteMentions(client,id,old.snapshot,value,[...captured.map(([actor])=>actor),...(actor?[actor]:[])]);
         const latest = (
           await client.query(
             "SELECT id,hash,created_at FROM document_versions WHERE doc_id=$1 ORDER BY created_at DESC LIMIT 1",
@@ -295,10 +365,11 @@ export class Documents {
             Date.now() - new Date(latest.created_at).getTime() >= 60000)
         ) {
           versionId = randomUUID();
-          await client.query(
-            "INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,author,source,editor_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-            [versionId, id, value, state, hash, actor, source, editors],
-          );
+          // The process-local store gate normally makes the hint exact. An
+          // out-of-band tutorial writer can create a version while we prepare;
+          // in that rare case still preserve one atomic current/history commit.
+          historyState??=await prepareHistoryState(state);
+          await writeHistoryVersion(client,{id:versionId,docId:id,snapshot:value,state:historyState,hash,author:actor,source,editorIds:editors});
           await client.query("UPDATE documents SET pending_editor_ids='{}' WHERE id=$1", [id]);
         }
         if (extra) await extra(client);
@@ -315,7 +386,7 @@ export class Documents {
     if (space) await spaceRole(account, identifier(space));
     return (
       await db.query(
-        `SELECT d.id,d.space_id,d.folder_id,d.title,d.tags,d.revision,d.updated_at,d.archived,d.created_by,d.visibility,s.name AS space_name,s.kind AS space_kind,f.name AS folder_name,dc.role AS collaboration_role,u.name AS author_name,effective_document_role($1,d.id) AS role FROM documents d JOIN spaces s ON s.id=d.space_id LEFT JOIN folders f ON f.id=d.folder_id JOIN users u ON u.id=d.created_by LEFT JOIN space_members m ON m.space_id=d.space_id AND m.user_id=$1 LEFT JOIN document_collaborators dc ON dc.doc_id=d.id AND dc.user_id=$1 WHERE ${readableDocumentSQL("d")} AND ($3::text IS NULL OR d.space_id=$3) AND d.archived=$5 AND ($4='' OR d.title ILIKE '%'||$4||'%' OR d.snapshot::text ILIKE '%'||$4||'%' OR array_to_string(d.tags,' ') ILIKE '%'||$4||'%') ORDER BY d.updated_at DESC`,
+        `SELECT d.id,d.space_id,d.folder_id,d.title,d.tags,d.revision,d.updated_at,d.archived,s.archived AS library_archived,d.created_by,d.visibility,s.team_id,s.name AS space_name,s.kind AS space_kind,f.name AS folder_name,dc.role AS collaboration_role,u.name AS author_name,effective_document_role($1,d.id) AS role FROM documents d JOIN spaces s ON s.id=d.space_id LEFT JOIN folders f ON f.id=d.folder_id JOIN users u ON u.id=d.created_by LEFT JOIN space_members m ON m.space_id=d.space_id AND m.user_id=$1 LEFT JOIN document_collaborators dc ON dc.doc_id=d.id AND dc.user_id=$1 WHERE ${readableDocumentSQL("d")} AND ($3::text IS NULL OR d.space_id=$3) AND d.archived=$5 AND ($4='' OR d.title ILIKE '%'||$4||'%' OR d.snapshot::text ILIKE '%'||$4||'%' OR array_to_string(d.tags,' ') ILIKE '%'||$4||'%') ORDER BY d.updated_at DESC`,
         [
           account.id,
           account.is_admin,
@@ -429,26 +500,15 @@ export class Documents {
         type: "doc",
         content: [{ type: "paragraph", attrs: { blockId: randomUUID() } }],
       }),
-      document = prosemirrorJSONToYDoc(schema, value, "default"),
-      state = Buffer.from(Y.encodeStateAsUpdate(document));
+      document = prosemirrorJSONToYDoc(schema, value, "default");
+    const encoding=await initializeDocumentEncoding(document),state = Buffer.from(Y.encodeStateAsUpdate(document));
+    const historyState=await prepareHistoryState(state);
     await transaction(async (client) => {
       await client.query(
-        "INSERT INTO documents(id,space_id,folder_id,title,created_by,ystate,snapshot,visibility) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-        [id, space, folder, title, account.id, state, value, visibility],
+        "INSERT INTO documents(id,space_id,folder_id,title,created_by,ystate,snapshot,visibility,last_editor_ids,state_encoding) VALUES($1,$2,$3,$4,$5,$6,$7,$8,ARRAY[$5],$9)",
+        [id, space, folder, title, account.id, state, value, visibility,encoding],
       );
-      await client.query(
-        "INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,author,source,editor_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-        [
-          randomUUID(),
-          id,
-          value,
-          state,
-          digest(stable(value)),
-          account.id,
-          "create",
-          [account.id],
-        ],
-      );
+      await writeHistoryVersion(client,{id:randomUUID(),docId:id,snapshot:value,state:historyState,hash:digest(stable(value)),author:account.id,source:'create',editorIds:[account.id]});
     });
     document.destroy();
     return {
@@ -463,10 +523,34 @@ export class Documents {
       archived: false,
     };
   }
+  async info(account:User,id:string) {
+    await documentRole(account,id);
+    return (await db.query(`SELECT d.title,d.tags,d.updated_at,
+      COALESCE((SELECT json_agg(json_build_object('name',COALESCE(u.name,'已删除用户')) ORDER BY COALESCE(u.name,''),ids.id) FROM unnest(d.last_editor_ids) AS ids(id) LEFT JOIN users u ON u.id=ids.id),'[]'::json) AS last_editors
+      FROM documents d WHERE d.id=$1`,[id])).rows[0];
+  }
+  /** Opening the editor needs permissions and page information first. Avoid
+   * decoding a potentially large collaboration history just to show its title
+   * or authorize the subsequent, state-vector-aware WebSocket connection. */
+  async getMetadata(account: User, id: string) {
+    const doc = await documentRole(account, id);
+    const row = (await db.query(
+      `SELECT d.id,d.space_id,d.folder_id,d.title,d.tags,d.revision,d.archived,d.updated_at,d.visibility,d.created_by,d.access_revision,d.state_encoding,d.state_revision,
+       s.name AS space_name,s.kind AS space_kind,s.archived AS library_archived,s.archive_revision AS library_archive_revision,
+       (SELECT count(*)::int FROM document_collaborators c WHERE c.doc_id=d.id) AS collaborator_count,
+       (SELECT count(*)::int FROM document_share_links l WHERE l.doc_id=d.id AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())) AS external_link_count,
+       COALESCE((SELECT json_agg(json_build_object('name',COALESCE(u.name,'已删除用户')) ORDER BY COALESCE(u.name,''),ids.id) FROM unnest(d.last_editor_ids) AS ids(id) LEFT JOIN users u ON u.id=ids.id),'[]'::json) AS last_editors
+       FROM documents d JOIN spaces s ON s.id=d.space_id WHERE d.id=$1`, [id],
+    )).rows[0];
+    if (!row) fail(404, "文档不存在");
+    const role=row.library_archived?"viewer":doc.role;
+    return { ...row, role, can_manage: role === "admin" };
+  }
   async get(account: User, id: string) {
     const doc = await documentRole(account, id),
       role = doc.role;
     return this.access(id, async (document) => {
+      const permissions=await documentRole(account,id);
       const row = (
           await db.query(
             "SELECT id,space_id,folder_id,title,tags,revision,archived,updated_at,visibility,created_by,access_revision,(SELECT count(*)::int FROM document_collaborators c WHERE c.doc_id=documents.id) AS collaborator_count,(SELECT count(*)::int FROM document_share_links l WHERE l.doc_id=documents.id AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at>now())) AS external_link_count FROM documents WHERE id=$1",
@@ -476,8 +560,11 @@ export class Documents {
         value = snapshot(document);
       return {
         ...row,
-        role,
-        can_manage: role === "admin",
+        ...await this.info(account,id),
+        role:permissions.role,
+        library_archived:permissions.library_archived,
+        library_archive_revision:permissions.library_archive_revision,
+        can_manage: permissions.role === "admin",
         ...(
           await db.query(
             "SELECT name AS space_name,kind AS space_kind FROM spaces WHERE id=$1",
@@ -532,13 +619,13 @@ export class Documents {
     )
       fail(400, "标签格式无效");
     await db.query(
-      "UPDATE documents SET title=$1,folder_id=$2,tags=$3,archived=$4,updated_at=now() WHERE id=$5",
+      "UPDATE documents SET title=$1,folder_id=$2,tags=$3,archived=$4,updated_at=now(),last_editor_ids=$6 WHERE id=$5",
       [
         title,
         folder,
         [...new Set(tags)],
         input.archived === undefined ? current.archived : input.archived,
-        id,
+        id,[account.id],
       ],
     );
   }
@@ -548,18 +635,20 @@ export class Documents {
       const clone=new Y.Doc();Y.applyUpdate(clone,Y.encodeStateAsUpdate(document));
       const before=snapshot(document),captured=[...(this.editorUpdates.get(id)||[])];
       try{
+        const beforeHash=digest(stable(before)),beforeState=await prepareHistoryState(Buffer.from(Y.encodeStateAsUpdate(document)));
+        replace(clone,candidate.snapshot,account.id);
+        const value=snapshot(clone),state=Buffer.from(Y.encodeStateAsUpdate(clone)),hash=digest(stable(value)),versionId=randomUUID(),historyState=await prepareHistoryState(state);
         const result=await transaction(async sql=>{
           const row=(await sql.query("SELECT * FROM documents WHERE id=$1 FOR UPDATE",[id])).rows[0];
           if(!row||row.deleted_at||row.archived)fail(409,"笔记已归档或删除，请重新读取");
           if(noteHash({...row,snapshot:before})!==expectedHash)fail(409,"笔记在预览后已更新，请重新读取并确认差异");
           const role=(await sql.query("SELECT effective_document_role($1,$2) AS role",[account.id,id])).rows[0].role;
           if(!["admin","editor"].includes(role))fail(403,"笔记编辑权限已变更");
-          const beforeHash=digest(stable(before)),latest=(await sql.query("SELECT hash FROM document_versions WHERE doc_id=$1 ORDER BY created_at DESC LIMIT 1",[id])).rows[0];
-          if(latest?.hash!==beforeHash)await sql.query("INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,source,editor_ids) VALUES($1,$2,$3,$4,$5,'before-integration',$6)",[randomUUID(),id,before,Buffer.from(Y.encodeStateAsUpdate(document)),beforeHash,[...new Set([...(row.pending_editor_ids||[]),...captured.map(([actor])=>actor)])]]);
-          replace(clone,candidate.snapshot,account.id);
-          const value=snapshot(clone),hash=digest(stable(value)),versionId=randomUUID();
-          await sql.query("UPDATE documents SET snapshot=$2,ystate=$3,title=$4,tags=$5,revision=revision+1,updated_at=now(),pending_editor_ids='{}' WHERE id=$1",[id,value,Buffer.from(Y.encodeStateAsUpdate(clone)),candidate.title,candidate.tags]);
-          await sql.query("INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,author,source,editor_ids,integration_client) VALUES($1,$2,$3,$4,$5,$6,'integration',$7,$8)",[versionId,id,value,Buffer.from(Y.encodeStateAsUpdate(clone)),hash,account.id,[account.id],clientName]);
+          const latest=(await sql.query("SELECT hash FROM document_versions WHERE doc_id=$1 ORDER BY created_at DESC LIMIT 1",[id])).rows[0];
+          if(latest?.hash!==beforeHash)await writeHistoryVersion(sql,{id:randomUUID(),docId:id,snapshot:before,state:beforeState,hash:beforeHash,source:'before-integration',editorIds:[...new Set([...(row.pending_editor_ids||[]),...captured.map(([actor])=>actor)])]});
+          await sql.query("UPDATE documents SET snapshot=$2,ystate=$3,title=$4,tags=$5,revision=revision+1,updated_at=now(),pending_editor_ids='{}',last_editor_ids=$6 WHERE id=$1",[id,value,state,candidate.title,candidate.tags,[account.id]]);
+          await notifyNoteMentions(sql,id,before,value,[account.id]);
+          await writeHistoryVersion(sql,{id:versionId,docId:id,snapshot:value,state:historyState,hash,author:account.id,source:'integration',editorIds:[account.id],integrationClient:clientName});
           const result={applied:true,doc_id:id,version_id:versionId,hash,url:"/?doc="+id};await extra(sql,result);return result;
         });
         Y.applyUpdate(document,Y.encodeStateAsUpdate(clone,Y.encodeStateVector(document)),{source:"local",context:{actor:account.id}});
@@ -571,15 +660,18 @@ export class Documents {
   async createIntegration(account:User,id:string,space:string,folder:string|null,candidate:{snapshot:RichDoc;title:string;tags:string[]},clientName:string,extra:(sql:PoolClient,result:any)=>Promise<void>){
     await spaceRole(account,space,"create");
     const document=prosemirrorJSONToYDoc(schema,candidate.snapshot,"default");
-    try{return await transaction(async sql=>{
+    try{
+      const encoding=await initializeDocumentEncoding(document);
+      const value=snapshot(document),state=Buffer.from(Y.encodeStateAsUpdate(document)),hash=digest(stable(value)),versionId=randomUUID(),historyState=await prepareHistoryState(state);
+      return await transaction(async sql=>{
       await sql.query("SELECT id FROM spaces WHERE id=$1 FOR KEY SHARE",[space]);
       const role=(await sql.query("SELECT effective_space_role($1,$2) AS role",[account.id,space])).rows[0]?.role;
       if(!["admin","editor","contributor"].includes(role))fail(403,"知识库创建权限已变更");
       if(folder&&!(await sql.query("SELECT id FROM folders WHERE id=$1 AND space_id=$2 FOR KEY SHARE",[folder,space])).rowCount)fail(409,"目标目录已变化");
       const kind=(await sql.query("SELECT kind FROM spaces WHERE id=$1",[space])).rows[0]?.kind;
-      const value=snapshot(document),state=Buffer.from(Y.encodeStateAsUpdate(document)),hash=digest(stable(value)),versionId=randomUUID();
-      await sql.query("INSERT INTO documents(id,space_id,folder_id,title,tags,created_by,snapshot,ystate,visibility) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",[id,space,folder,candidate.title,candidate.tags,account.id,value,state,kind==="team"?"team":"private"]);
-      await sql.query("INSERT INTO document_versions(id,doc_id,snapshot,ystate,hash,author,source,editor_ids,integration_client) VALUES($1,$2,$3,$4,$5,$6,'integration',$7,$8)",[versionId,id,value,state,hash,account.id,[account.id],clientName]);
+      await sql.query("INSERT INTO documents(id,space_id,folder_id,title,tags,created_by,snapshot,ystate,visibility,last_editor_ids,state_encoding) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,ARRAY[$6],$10)",[id,space,folder,candidate.title,candidate.tags,account.id,value,state,kind==="team"?"team":"private",encoding]);
+      await notifyNoteMentions(sql,id,null,value,[account.id]);
+      await writeHistoryVersion(sql,{id:versionId,docId:id,snapshot:value,state:historyState,hash,author:account.id,source:'integration',editorIds:[account.id],integrationClient:clientName});
       const result={applied:true,doc_id:id,version_id:versionId,hash,url:"/?doc="+id};await extra(sql,result);return result;
     });}finally{document.destroy();}
   }
@@ -610,13 +702,13 @@ export class Documents {
         ).rows[0];
         if (!asset || localPath !== localAssetPath(asset))
           fail(409, "资源引用不完整或不属于当前知识库，请在编辑器中重新插入");
-        await assetFor(account, assetId);
+        const described = await assetFor(account, assetId);
         assets.push({
           id: asset.id,
           path: localPath,
           hash: asset.hash,
           bytes: Number(asset.bytes),
-          mime: asset.mime,
+          mime: described.mime,
           url: `/api/assets/${asset.id}/file`,
         });
       }
@@ -750,7 +842,7 @@ export class Documents {
         const plan=await noteMovePlan(sql,account,{...row,snapshot:snapshot(document)},input);
         if(plan.preview_hash!==input.preview_hash)fail(409,"笔记或目标权限在预览后发生变化，请重新预览移动");
         await sql.query("UPDATE spaces SET catalog_order=array_remove(catalog_order,$2),catalog_revision=catalog_revision+1 WHERE id=$1",[row.space_id,"note:"+id]);
-        await sql.query("UPDATE documents SET space_id=$2,folder_id=$3,visibility=$4,title=$5,tags=$6,access_revision=access_revision+1,revision=revision+1,updated_at=now() WHERE id=$1",[id,plan.library_id,plan.folder_id,plan.visibility,plan.title,plan.tags]);
+        await sql.query("UPDATE documents SET space_id=$2,folder_id=$3,visibility=$4,title=$5,tags=$6,access_revision=access_revision+1,revision=revision+1,updated_at=now(),last_editor_ids=$7 WHERE id=$1",[id,plan.library_id,plan.folder_id,plan.visibility,plan.title,plan.tags,[account.id]]);
         await sql.query("UPDATE spaces SET catalog_order=array_append(catalog_order,$2) WHERE id=$1 AND NOT $2=ANY(catalog_order)",[plan.library_id,"note:"+id]);
         await sql.query("UPDATE assets SET space_id=$2 WHERE owner_doc_id=$1",[id,plan.library_id]);
         await sql.query("DELETE FROM document_collaborators WHERE doc_id=$1",[id]);
@@ -801,8 +893,8 @@ export class Documents {
         if (anchor.orphaned || anchor.text !== input?.anchor?.quote)
           fail(400, "评论选区已失效，请重新选择");
       }
-      return (
-        await db.query(
+      return transaction(async sql=>{
+      const comment=(await sql.query(
           "INSERT INTO comments(id,doc_id,parent_id,author,body,anchor) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
           [
             randomUUID(),
@@ -814,6 +906,9 @@ export class Documents {
           ],
         )
       ).rows[0];
+      await notifyComment(sql,id,comment.id,parent,account.id);
+      return comment;
+      });
     });
   }
   async resolveComment(
@@ -965,7 +1060,9 @@ export class Documents {
   }
   async close() {
     clearInterval(this.historyTimer);
+    clearInterval(this.historyStateTimer);
     await this.historyTask;
+    await this.historyStateTask;
     await this.server?.destroy();
   }
 }

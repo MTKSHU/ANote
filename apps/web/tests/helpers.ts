@@ -27,11 +27,43 @@ export async function chooseTheme(page: Page, theme: "light" | "dark" | "auto") 
   const resolved=theme === "auto" ? await page.evaluate(()=>matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light") : theme;
   await expect(page.locator("html")).toHaveAttribute("data-theme", resolved);
   if (reopen) {
-    await page.locator(".academic-user").getByRole("button", { name: "设置", exact: true }).click();
+    await openWorkspaceSettings(page);
     if (tab && tab !== "账号与偏好") await settings.getByRole("button", { name: tab, exact: true }).click();
   }
 }
+export async function openWorkspaceSettings(page: Page) {
+  const settings=page.getByRole("dialog",{name:"设置",exact:true});
+  if(await settings.isVisible())return settings;
+  const menu=page.locator(".workspace-account-menu");
+  if(await menu.getAttribute("open")===null)await menu.locator("summary").click();
+  await page.getByRole("menuitem",{name:"设置",exact:true}).click();
+  await expect(settings).toBeVisible();
+  return settings;
+}
+export async function signOutWorkspace(page: Page) {
+  const menu=page.locator(".workspace-account-menu");
+  if(await menu.getAttribute("open")===null)await menu.locator("summary").click();
+  await page.getByRole("menuitem",{name:/^(退出登录|关闭个人模式)$/}).click();
+}
 const localAccounts = new Map<string, { username: string; password: string }>();
+export async function openWorkspaceSwitcher(page:Page) {
+  const menu=page.locator(".workspace-account-menu");
+  if(await menu.getAttribute("open")===null)await menu.getByRole("button",{name:"用户菜单",exact:true}).click();
+  const trigger=page.getByRole("menuitem",{name:"工作空间切换",exact:true});
+  if(await trigger.getAttribute("aria-expanded")!=="true")await trigger.click();
+  const choices=page.getByRole("menu",{name:"工作空间切换",exact:true});
+  await expect(choices).toBeVisible();return choices;
+}
+export async function switchWorkspace(page:Page,name:string) {
+  const choices=await openWorkspaceSwitcher(page);
+  await choices.getByRole("menuitemradio",{name,exact:true}).click();
+}
+export async function accountMenu(page:Page,item:"好友"|"团队管理"|"全部知识库") {
+  if(item!=="好友"){const link=page.getByRole("navigation",{name:"知识库导航",exact:true}).getByRole("link",{name:item,exact:true});if(await link.count()){await link.click();return;}}
+  const menu=page.locator(".workspace-account-menu");
+  if(await menu.getAttribute("open")===null)await menu.getByRole("button",{name:"用户菜单",exact:true}).click();
+  await page.getByRole("menu",{name:"用户菜单",exact:true}).getByRole("menuitem",{name:new RegExp("^"+item)}).click();
+}
 export async function api(
   request: APIRequestContext,
   method: string,
@@ -105,10 +137,12 @@ export async function admin(request: APIRequestContext) {
     password: process.env.ADMIN_PASSWORD,
   });
 }
-export async function login(page: Page, account: any = {}, language: "zh-CN" | "en" = "zh-CN") {
-  await page.addInitScript(locale => {
-    try { localStorage.setItem("anote:locale", locale); } catch {}
-  }, language);
+export async function removeEmptyDefaultLibrary(request: APIRequestContext, account: any) {
+  for (const library of await api(request,"GET","spaces",undefined,account))
+    if (library.kind === "personal" && library.created_by === account.user.id && library.name === "默认知识库" && library.note_count === 0)
+      await api(request,"DELETE",`spaces/${library.id}`,undefined,account);
+}
+export async function login(page: Page, account: any = {}) {
   await page.goto("/");
   await page
     .getByLabel("用户名", { exact: true })
@@ -124,7 +158,7 @@ export async function createLibrary(
   name = "研究资料 " + randomUUID().slice(0, 6),
   kind = "personal",
 ) {
-  if(kind === "personal") await page.getByTestId("personal-libraries").click();
+  if(kind === "personal") await accountMenu(page,"全部知识库");
   else await page.locator(".academic-team-libraries").getByRole("button",{name:/团队$/}).first().click();
   if (kind === "team")
     await page.getByRole("button", { name: "知识库", exact: true }).click();

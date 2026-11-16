@@ -7,6 +7,7 @@ import { Icon } from "./icons";
 import { TableControls } from "./table-controls";
 import { uploadTypes, type UploadCategory } from "./upload-types";
 import { newId } from "@anote/document-model/id";
+import {NoteLinkPicker,type NoteLinkTarget} from "./note-links";
 type Position = { left: number; top: number };
 type Slash = Position & { from: number; to: number; query: string };
 type Action = {
@@ -23,12 +24,17 @@ export function EditorTools({
   onUpload,
   offline,
   onComment,
+  noteTargets,
+  currentId,
 }: {
   editor: Editor;
   onUpload: (category: UploadCategory) => void;
   offline: boolean;
   onComment?: () => void;
+  noteTargets?:NoteLinkTarget[];
+  currentId?:string;
 }) {
+  const [linkPicker,setLinkPicker]=useState(false);
   const [slash, setSlash] = useState<Slash | null>(null),
     [bubble, setBubble] = useState<(Position & { text: boolean }) | null>(null),
     [index, setIndex] = useState(0);
@@ -128,9 +134,9 @@ export function EditorTools({
       label: value.label,
       hint: value.hint,
       keywords:
-        translateUI("upload 上传 {0}{1}", [category, (category === "project" ? translateUI(" 3d blender unity ue 三维 项目") : "")]),
+        translateUI("upload 上传 {0}{1}{2}", [category, (category.startsWith("panorama") ? translateUI(" 360 全景 panorama equirectangular") : ""), (category === "project" ? translateUI(" 3d blender unity ue 三维 项目") : "")]),
       icon:
-        category === "image" || category === "comparison"
+        category === "image" || category === "comparison" || category === "panoramaImage"
           ? "image"
           : "attachment",
       online: true,
@@ -187,6 +193,7 @@ export function EditorTools({
         e.chain().focus().setHorizontalRule().run();
       },
     },
+    ...(noteTargets?[{id:"note-link",label:translateUI("笔记链接"),hint:translateUI("链接到其他可读笔记"),keywords:"note link reference 链接 引用 参考 笔记",icon:"file",run:()=>setLinkPicker(true)}]:[]),
   ];
   const filtered = actions.filter(
     (a) =>
@@ -214,7 +221,7 @@ export function EditorTools({
   chooseRef.current = choose;
   useEffect(() => {
     const dom = editor.view.dom;
-    let frame = 0;
+    let frame = 0, selecting=false;
     const update = () => {
       if (editor.isDestroyed || !dom.isConnected) return;
       dom.dataset.empty = String(editor.isEmpty);
@@ -283,7 +290,7 @@ export function EditorTools({
       const inEditor =
         !!nativeSelection?.anchorNode &&
         dom.contains(nativeSelection.anchorNode);
-      if (focused && inEditor && text) {
+      if (!selecting && focused && inEditor && text) {
         const rect = nativeSelection?.rangeCount
             ? nativeSelection.getRangeAt(0).getBoundingClientRect()
             : null,
@@ -329,7 +336,9 @@ export function EditorTools({
         }
       }
     };
+    const release=()=>{selecting=false;schedule();};
     const outside = (e: PointerEvent) => {
+      if(e.button===0&&dom.contains(e.target as Node)){selecting=true;setBubble(null);schedule();}
       if (
         !(e.target as Element).closest?.(
           ".academic-floating-tools,.academic-slash-menu",
@@ -345,6 +354,9 @@ export function EditorTools({
     dom.addEventListener("keydown", keydown, true);
     document.addEventListener("selectionchange", schedule);
     document.addEventListener("pointerdown", outside);
+    document.addEventListener("pointerup", release);
+    document.addEventListener("pointercancel", release);
+    window.addEventListener("blur", release);
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
     update();
@@ -354,6 +366,9 @@ export function EditorTools({
       dom.removeEventListener("keydown", keydown, true);
       document.removeEventListener("selectionchange", schedule);
       document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("pointerup", release);
+      document.removeEventListener("pointercancel", release);
+      window.removeEventListener("blur", release);
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
     };
@@ -363,8 +378,17 @@ export function EditorTools({
       .getElementById("academic-command-" + index)
       ?.scrollIntoView({ block: "nearest" });
   }, [index]);
+  useEffect(()=>{
+    if(!noteTargets)return;
+    const open=(event:KeyboardEvent)=>{
+      if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==="k"&&!event.isComposing&&!editor.view.composing&&editor.isEditable){event.preventDefault();event.stopPropagation();setSlash(null);setBubble(null);setLinkPicker(true);}
+    };
+    const dom=editor.view.dom;
+    dom.addEventListener("keydown",open,true);return()=>{dom.removeEventListener("keydown",open,true);};
+  },[editor,!!noteTargets]);
   return (
     <>
+      {linkPicker&&noteTargets&&<NoteLinkPicker editor={editor} notes={noteTargets} currentId={currentId} onClose={()=>setLinkPicker(false)}/>}
       <TableControls editor={editor} onComment={onComment} offline={offline} />
       {slash && (
         <div
@@ -422,6 +446,7 @@ export function EditorTools({
             <SelectionToolbar
               editor={editor}
               onComment={offline ? undefined : onComment}
+              onNoteLink={noteTargets?()=>{setBubble(null);setLinkPicker(true);}:undefined}
             />
           )}
         </div>
